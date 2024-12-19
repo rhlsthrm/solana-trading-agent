@@ -1,0 +1,27 @@
+{
+  "name": "solana-trading-agent",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "tsx src/index.ts",
+    "test": "tsx src/test.ts",
+    "dev": "tsx watch src/index.ts",
+    "setup-wallet": "tsx src/scripts/setup-test-wallet.ts"
+  },
+  "dependencies": {
+    "@ai16z/eliza": "^0.1.6-alpha.4",
+    "@goat-sdk/wallet-solana": "^0.1.3",
+    "@solana/spl-token": "^0.4.9",
+    "@solana/web3.js": "^1.90.0",
+    "better-sqlite3": "^9.4.3",
+    "bs58": "^6.0.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.9",
+    "@types/node": "^20.11.24",
+    "tsx": "^4.7.1",
+    "typescript": "^5.3.3"
+  }
+}
