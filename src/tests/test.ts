@@ -1,6 +1,6 @@
 import { config } from "dotenv";
 import type { IAgentRuntime, Memory, State } from "@ai16z/eliza";
-import createTradingPlugin from "./index.js";
+import createTradingPlugin from "../index.js";
 import Database from "better-sqlite3";
 
 const mockRuntime: Partial<IAgentRuntime> = {
