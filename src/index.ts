@@ -5,6 +5,7 @@ import { Connection, Keypair } from "@solana/web3.js";
 import Database from "better-sqlite3";
 import { createKeypairFromSecret } from "./utils/solana";
 import { createJupiterService } from "./services/jupiter";
+import { createTechnicalAnalysisService } from "./services/technical-analysis";
 
 // Initialize database
 function initializeDatabase() {
@@ -17,6 +18,18 @@ function initializeDatabase() {
       liquidity NUMERIC,
       volume_24h NUMERIC,
       last_updated TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS analysis (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      token_address TEXT NOT NULL,
+      timeframe TEXT NOT NULL,
+      rsi NUMERIC,
+      short_ma NUMERIC,
+      long_ma NUMERIC,
+      volume_ma NUMERIC,
+      timestamp TIMESTAMP,
+      FOREIGN KEY (token_address) REFERENCES tokens(address)
     );
 
     CREATE TABLE IF NOT EXISTS signals (
@@ -62,17 +75,19 @@ function getWalletClient(getSetting: (key: string) => string | undefined) {
   try {
     // Create keypair from secret
     const keypair = createKeypairFromSecret(privateKeyStr);
-
     console.log(`Wallet public key: ${keypair.publicKey.toString()}`);
 
     // Create Solana connection
     const connection = new Connection(rpcUrl, "confirmed");
 
-    // Create wallet client using GOAT solana adapter
-    return solana({
-      keypair,
+    // Return both wallet client and connection
+    return {
+      walletClient: solana({
+        keypair,
+        connection,
+      }),
       connection,
-    });
+    };
   } catch (error) {
     throw new Error(
       `Failed to initialize wallet: ${
@@ -143,7 +158,7 @@ async function createTradingPlugin(
   const db = initializeDatabase();
 
   // Initialize wallet
-  const walletClient = getWalletClient(getSetting);
+  const { walletClient, connection } = getWalletClient(getSetting);
   if (!walletClient) {
     throw new Error("Failed to initialize wallet client");
   }
@@ -153,6 +168,11 @@ async function createTradingPlugin(
     minLiquidity: config.minLiquidity,
     minVolume24h: config.minVolume24h,
   });
+
+  const technicalAnalysis = createTechnicalAnalysisService(
+    connection,
+    config.timeframes
+  );
 
   // Create ELIZA plugin structure
   return {
@@ -214,6 +234,90 @@ async function createTradingPlugin(
               content: {
                 text: "Scanning for tokens meeting liquidity and volume criteria",
                 action: "SCAN_TOKENS",
+              },
+            },
+          ],
+        ],
+      },
+      {
+        name: "ANALYZE_TOKEN",
+        similes: ["CHECK_TOKEN", "ANALYZE"],
+        description: "Perform technical analysis on a specific token",
+        handler: async (runtime, message) => {
+          try {
+            // Extract token address from message
+            const match = message.content.text.match(
+              /\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/
+            );
+            if (!match) {
+              console.log("No valid token address found in message");
+              return false;
+            }
+
+            const tokenAddress = match[0];
+            console.log(`Analyzing token: ${tokenAddress}`);
+
+            // Get token info from database
+            const token = db
+              .prepare("SELECT * FROM tokens WHERE address = ?")
+              .get(tokenAddress);
+
+            if (!token) {
+              console.log("Token not found in database");
+              return false;
+            }
+
+            // Perform technical analysis
+            const analysis = await technicalAnalysis.analyzeToken(tokenAddress);
+
+            // Store analysis results
+            const stmt = db.prepare(`
+              INSERT INTO analysis (
+                token_address,
+                timeframe,
+                rsi,
+                short_ma,
+                long_ma,
+                volume_ma,
+                timestamp
+              ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+            `);
+
+            // Store results for each timeframe
+            for (const [timeframe, indicators] of Object.entries(analysis)) {
+              if (indicators) {
+                stmt.run(
+                  tokenAddress,
+                  timeframe,
+                  indicators.rsi,
+                  indicators.shortMA,
+                  indicators.longMA,
+                  indicators.volumeMA
+                );
+              }
+            }
+
+            console.log(`Analysis completed for ${token.symbol}`);
+            return true;
+          } catch (error) {
+            console.error("Error in ANALYZE_TOKEN:", error);
+            return false;
+          }
+        },
+        validate: async () => true,
+        examples: [
+          [
+            {
+              user: "user1",
+              content: {
+                text: "Analyze token EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+              },
+            },
+            {
+              user: "agent",
+              content: {
+                text: "Analyzing technical indicators for the specified token",
+                action: "ANALYZE_TOKEN",
               },
             },
           ],

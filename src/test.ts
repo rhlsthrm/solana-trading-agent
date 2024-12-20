@@ -1,4 +1,3 @@
-// src/test.ts
 import { config } from "dotenv";
 import type { IAgentRuntime, Memory, State } from "@ai16z/eliza";
 import createTradingPlugin from "./index.js";
@@ -27,8 +26,9 @@ const mockRuntime: Partial<IAgentRuntime> = {
   },
 };
 
+// Add USDC token address to mock message for analysis
 const mockMessage: Partial<Memory> = {
-  content: { text: "Test message" },
+  content: { text: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" }, // USDC token address
   userId: "test-user" as any,
   roomId: "test-room" as any,
   agentId: "test-agent" as any,
@@ -58,6 +58,60 @@ async function displayTokens(db: Database.Database) {
   });
 }
 
+async function displayAnalysis(db: Database.Database) {
+  console.log("\nLatest Analysis Results:");
+  const results = db
+    .prepare(
+      `
+      SELECT a.*, t.symbol 
+      FROM analysis a 
+      JOIN tokens t ON a.token_address = t.address 
+      ORDER BY a.timestamp DESC 
+      LIMIT 5
+    `
+    )
+    .all();
+
+  if (results.length === 0) {
+    console.log("No analysis results found.");
+    return;
+  }
+
+  results.forEach((result) => {
+    console.log(`Token: ${result.symbol}`);
+    console.log(`Timeframe: ${result.timeframe}`);
+    console.log(`RSI: ${result.rsi.toFixed(2)}`);
+    console.log(`Short MA: ${result.short_ma.toFixed(2)}`);
+    console.log(`Long MA: ${result.long_ma.toFixed(2)}`);
+    console.log(`Volume MA: ${result.volume_ma.toFixed(2)}`);
+    console.log(`Timestamp: ${result.timestamp}`);
+    console.log();
+  });
+}
+
+async function verifyDatabase(db: Database.Database) {
+  console.log("\nVerifying database tables...");
+
+  const tables = db
+    .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+    .all()
+    .map((t) => t.name);
+
+  console.log("Found tables:", tables);
+
+  if (tables.includes("analysis")) {
+    const columns = db
+      .prepare("PRAGMA table_info(analysis)")
+      .all()
+      .map((c) => `${c.name} (${c.type})`);
+
+    console.log("\nAnalysis table structure:");
+    columns.forEach((col) => console.log(`- ${col}`));
+  } else {
+    console.log("Analysis table not found!");
+  }
+}
+
 async function test() {
   // Load environment variables
   config();
@@ -82,6 +136,11 @@ async function test() {
       console.log("No wallet provider found!");
     }
 
+    const db = new Database("trading.db");
+
+    // Verify database setup
+    await verifyDatabase(db);
+
     // Test token scanning
     console.log("\nTesting token scanning...");
     const scanTokensAction = plugin.actions?.find(
@@ -97,16 +156,31 @@ async function test() {
 
       if (result) {
         console.log("Token scan completed successfully!");
-
-        // Display stored tokens
-        const db = new Database("trading.db");
         await displayTokens(db);
-        db.close();
       } else {
         console.log("Token scan failed!");
       }
-    } else {
-      console.log("SCAN_TOKENS action not found!");
+    }
+
+    // Test token analysis
+    console.log("\nTesting token analysis...");
+    const analyzeTokenAction = plugin.actions?.find(
+      (action) => action.name === "ANALYZE_TOKEN"
+    );
+    if (analyzeTokenAction) {
+      console.log("Running ANALYZE_TOKEN action...");
+      const result = await analyzeTokenAction.handler(
+        mockRuntime as IAgentRuntime,
+        mockMessage as Memory,
+        mockState as State
+      );
+
+      if (result) {
+        console.log("Token analysis completed successfully!");
+        await displayAnalysis(db);
+      } else {
+        console.log("Token analysis failed!");
+      }
     }
 
     // Log available actions
@@ -115,6 +189,7 @@ async function test() {
       console.log(`- ${action.name}: ${action.description}`);
     });
 
+    db.close();
     console.log("\nTest completed successfully!");
   } catch (error) {
     console.error("Test failed:", error);
