@@ -1,6 +1,6 @@
-import { v4 as uuidv4 } from "uuid";
+import { generateId } from "./uuid";
 
-interface Signal {
+export interface Signal {
   id: string;
   tokenAddress: string;
   type: "BUY" | "SELL";
@@ -9,11 +9,15 @@ interface Signal {
   timeframe?: string;
 }
 
-export function parseSignal(text: string): Signal | null {
+export function parseSignal(
+  text: string,
+  idGenerator = generateId
+): Signal | null {
   try {
     // DegenSeals specific patterns
     const addressPattern = /\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/;
-    const pricePattern = /(?:entry|price|bought at|sold at)[:\s]*[$]?([\d.]+)/i;
+    const pricePattern =
+      /(?:entry|price|buy at|bought at|sell at|sold at)[:\s]*\$?\s*([\d.]+)/i;
     const typePattern = /(buy|sell|long|short)/i;
 
     // Extract token address
@@ -35,30 +39,31 @@ export function parseSignal(text: string): Signal | null {
         : "SELL"
       : "BUY";
 
-    // Extract risk level
+    // Extract risk level with exact pattern matching
     let riskLevel: "LOW" | "MEDIUM" | "HIGH" = "MEDIUM";
-    if (
-      text.toLowerCase().includes("safe") ||
-      text.toLowerCase().includes("low risk")
-    ) {
+    const riskPattern = /risk:?\s*(low|medium|high)/i;
+    const riskMatch = text.match(riskPattern);
+
+    if (riskMatch) {
+      const risk = riskMatch[1].toUpperCase() as "LOW" | "MEDIUM" | "HIGH";
+      riskLevel = risk;
+    } else if (text.toLowerCase().includes("safe")) {
       riskLevel = "LOW";
-    } else if (
-      text.toLowerCase().includes("risky") ||
-      text.toLowerCase().includes("high risk")
-    ) {
+    } else if (text.toLowerCase().includes("risky")) {
       riskLevel = "HIGH";
     }
 
-    // Extract timeframe
+    // Extract timeframe with improved pattern
     let timeframe: string | undefined;
-    const timeframeMatch = text.match(/(\d+)\s*(m|h|d)/i);
+    const timeframePattern = /(?:timeframe|time frame):\s*(\d+\s*[mhd])/i;
+    const timeframeMatch = text.match(timeframePattern);
     if (timeframeMatch) {
-      timeframe = timeframeMatch[0].toLowerCase();
+      timeframe = timeframeMatch[1].toLowerCase().replace(/\s+/g, "");
     }
 
     // Create signal
     const signal: Signal = {
-      id: uuidv4(),
+      id: idGenerator(), // Use the injected generator
       tokenAddress: addressMatch[0],
       type,
       price,

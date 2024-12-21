@@ -5,7 +5,11 @@
   "scripts": {
     "build": "tsc",
     "start": "tsx src/index.ts",
-    "test": "tsx src/tests/main.ts",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",
+    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
+    "test:unit": "node --experimental-vm-modules node_modules/jest/bin/jest.js src/__tests__/unit",
+    "test:signal": "node --experimental-vm-modules node_modules/jest/bin/jest.js src/__tests__/unit/utils/parseSignal.test.ts",
     "test-telegram": "tsx src/tests/telegram.ts",
     "dev": "tsx watch src/index.ts",
     "setup-wallet": "tsx src/scripts/setup-test-wallet.ts"
@@ -24,9 +28,17 @@
     "uuid": "^11.0.3"
   },
   "devDependencies": {
+    "@babel/core": "^7.23.9",
+    "@babel/preset-env": "^7.26.0",
+    "@babel/preset-typescript": "^7.26.0",
+    "@jest/globals": "^29.7.0",
     "@types/better-sqlite3": "^7.6.9",
+    "@types/jest": "^29.5.14",
     "@types/node": "^20.11.24",
     "@types/uuid": "^10.0.0",
+    "babel-jest": "^29.7.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
     "tsx": "^4.7.1",
     "typescript": "^5.3.3"
   }
