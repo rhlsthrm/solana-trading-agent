@@ -6,6 +6,8 @@ import Database from "better-sqlite3";
 import { createKeypairFromSecret } from "./utils/solana";
 import { createJupiterService } from "./services/jupiter";
 import { createTechnicalAnalysisService } from "./services/technical-analysis";
+import { createTelegramMonitorService } from "./services/telegram";
+import executeSignalTradeAction from "./actions/executeSignalTrade";
 
 // Initialize database
 function initializeDatabase() {
@@ -174,6 +176,16 @@ async function createTradingPlugin(
     config.timeframes
   );
 
+  const telegramConfig = {
+    apiId: Number(getSetting("TELEGRAM_API_ID")),
+    apiHash: getSetting("TELEGRAM_API_HASH") || "",
+    sessionStr: getSetting("TELEGRAM_SESSION"),
+    dbPath: "trading.db",
+  };
+
+  const telegramMonitor = createTelegramMonitorService(telegramConfig);
+  await telegramMonitor.start();
+
   // Create ELIZA plugin structure
   return {
     name: "[GOAT] Solana Trading Agent",
@@ -323,6 +335,7 @@ async function createTradingPlugin(
           ],
         ],
       },
+      executeSignalTradeAction,
       {
         name: "EXECUTE_TRADE",
         similes: ["TRADE", "PLACE_TRADE"],
