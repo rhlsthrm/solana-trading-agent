@@ -124,7 +124,6 @@ export class TelegramMonitorService {
 
           // Validate the signal
           const isValid = await this.validateSignal(signal);
-          console.log("isValid", isValid);
 
           if (isValid) {
             await this.processValidSignal(signal);
@@ -239,41 +238,45 @@ export class TelegramMonitorService {
     console.log("✅ Valid signal detected!");
     console.log(JSON.stringify(signal, null, 2));
 
-    // Validate required fields
-    if (
-      !signal.tokenAddress ||
-      signal.type === "UNKNOWN" ||
-      signal.confidence === undefined
-    ) {
-      console.log("❌ Missing required fields for trade execution");
-      return;
-    }
+    // First store the signal in the database
+    const signalId = crypto.randomUUID();
+    await this.db
+      .prepare(
+        `
+            INSERT INTO signals (
+                id,
+                source,
+                token_address,
+                signal_type,
+                price,
+                confidence,
+                timestamp
+            ) VALUES (?, ?, ?, ?, ?, ?, unixepoch())
+        `
+      )
+      .run(
+        signalId,
+        "@DegenSeals",
+        signal.tokenAddress,
+        signal.type,
+        signal.price || 0,
+        signal.confidence || 0
+      );
 
-    // Transform signal to match trade execution requirements
+    // Then pass the signalId to trade execution
     const tradeSignal = {
-      id: crypto.randomUUID(), // Generate a unique ID for this signal
-      tokenAddress: signal.tokenAddress,
-      type: signal.type as "BUY" | "SELL", // We already checked it's not UNKNOWN
+      id: signalId, // Use the same ID we stored in signals table
+      tokenAddress: signal.tokenAddress as string,
+      type: signal.type as "BUY" | "SELL",
       price: signal.price,
-      confidence: signal.confidence,
+      confidence: signal.confidence || 0,
     };
 
-    // Execute trade
     const success = await this.tradeExecutionService.executeTrade(tradeSignal);
     if (success) {
       console.log("🎯 Trade executed successfully");
     } else {
       console.log("❌ Trade execution failed");
-    }
-  }
-
-  async stop() {
-    try {
-      console.log("Disconnecting from Telegram...");
-      await this.client.disconnect();
-      console.log("Cleanup completed successfully");
-    } catch (error) {
-      console.error("Error during cleanup:", error);
     }
   }
 }

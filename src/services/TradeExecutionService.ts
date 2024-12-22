@@ -49,14 +49,13 @@ export class TradeExecutionService {
       console.log(`Calculated position size: ${positionSize} SOL`);
 
       // 3. Get quote from Jupiter
+      console.log(`Getting quote from Jupiter...`);
       const quote = await this.jupiterService.getQuote({
         inputMint: this.WRAPPED_SOL,
         outputMint: signal.tokenAddress,
         amount: positionSize * 1e9, // Convert to lamports
         slippageBps: this.DEFAULT_SLIPPAGE_BPS,
       });
-
-      console.log("quote", quote);
 
       if (!quote) {
         console.error("❌ Failed to get quote from Jupiter");

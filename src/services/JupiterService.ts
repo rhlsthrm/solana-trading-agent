@@ -1,4 +1,49 @@
-import { PublicKey } from "@solana/web3.js";
+import { WalletClientBase } from "@goat-sdk/core";
+import {
+  Transaction,
+  VersionedTransaction,
+  TransactionInstruction,
+} from "@solana/web3.js";
+type Chain = {
+  type: "evm" | "solana" | "aptos" | "chromia";
+  id?: number;
+};
+
+type Signature = {
+  signature: string;
+};
+type Balance = {
+  decimals: number;
+  symbol: string;
+  name: string;
+  value: bigint;
+};
+interface WalletClient {
+  getAddress: () => string;
+  getChain: () => Chain;
+  signMessage: (message: string) => Promise<Signature>;
+  balanceOf: (address: string) => Promise<Balance>;
+}
+
+type SolanaTransaction = {
+  instructions: TransactionInstruction[];
+  addressLookupTableAddresses?: string[];
+};
+type SolanaReadRequest = {
+  accountAddress: string;
+};
+type SolanaReadResult = {
+  value: unknown;
+};
+type SolanaTransactionResult = {
+  hash: string;
+};
+interface SolanaWalletClient extends WalletClient {
+  sendTransaction: (
+    transaction: SolanaTransaction
+  ) => Promise<SolanaTransactionResult>;
+  read: (request: SolanaReadRequest) => Promise<SolanaReadResult>;
+}
 
 interface JupiterToken {
   address: string;
@@ -90,12 +135,9 @@ export class JupiterService {
 
       // Full URL logging
       const fullUrl = `${this.TOKENS_API}token/${tokenAddress}`;
-      console.log(`Full URL being called: ${fullUrl}`);
+      console.log("fetching token info from", fullUrl);
 
       const tokenResponse = await this.fetchWithRetry(fullUrl);
-
-      // More detailed response logging
-      console.log("Token Response:", JSON.stringify(tokenResponse, null, 2));
 
       if (!tokenResponse) {
         console.warn(`No token found for address: ${tokenAddress}`);
@@ -103,20 +145,6 @@ export class JupiterService {
       }
 
       const token = tokenResponse as JupiterToken;
-      const priceData = await this.fetchWithRetry(
-        `${
-          this.QUOTE_API
-        }/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${tokenAddress}&amount=${
-          10 ** token.decimals
-        }`,
-        {
-          headers: {
-            Accept: "application/json",
-          },
-        }
-      );
-
-      console.log("priceData", priceData);
 
       return {
         address: token.address,
@@ -125,8 +153,8 @@ export class JupiterService {
         decimals: token.decimals,
         volume24h: token.daily_volume,
         verified: true,
-        liquidity: 0,
-        price: 0,
+        liquidity: 0, // gotta fix
+        price: 0, // gotta fix
       };
     } catch (error) {
       console.error(`Detailed error fetching info for token ${tokenAddress}:`, {
@@ -146,8 +174,9 @@ export class JupiterService {
     slippageBps: number;
   }): Promise<QuoteResponse | null> {
     try {
+      console.log("fetching quote for", params.outputMint);
       const quoteResponse = await this.fetchWithRetry(
-        `${this.QUOTE_API}/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${params.outputMint}&amount=${params.amount}`,
+        `${this.QUOTE_API}/quote?inputMint=${params.inputMint}&outputMint=${params.outputMint}&amount=${params.amount}`,
         {
           headers: {
             Accept: "application/json",
@@ -164,7 +193,7 @@ export class JupiterService {
 
   public async executeSwap(
     quote: QuoteResponse,
-    walletClient: any // GOAT wallet client
+    walletClient: SolanaWalletClient
   ): Promise<SwapResponse | null> {
     try {
       const userPublicKey = walletClient.getAddress();
@@ -174,23 +203,59 @@ export class JupiterService {
         method: "POST",
         body: JSON.stringify({
           quoteResponse: quote,
-          userPublicKey,
+          userPublicKey: userPublicKey.toString(),
           wrapUnwrapSOL: true,
+          useSharedAccounts: true,
+          dynamicComputeUnitLimit: true,
+          asLegacyTransaction: true, // Force legacy transaction format
         }),
       });
 
-      // Execute transaction using GOAT wallet client
-      const txid = await walletClient.sendTransaction(
-        swapResponse.swapTransaction
+      if (!swapResponse || !swapResponse.swapTransaction) {
+        console.error("No swap transaction in response:", swapResponse);
+        return null;
+      }
+
+      // Decode base64 transaction data
+      const transactionData = Buffer.from(
+        swapResponse.swapTransaction,
+        "base64"
       );
 
+      // Deserialize into Solana Transaction
+      const transaction = Transaction.from(transactionData);
+
+      // Convert to GOAT SDK format
+      const goatTransaction: SolanaTransaction = {
+        instructions: transaction.instructions,
+        // Versioned transactions aren't supported in this flow, so we'll skip lookup tables
+        addressLookupTableAddresses: undefined,
+      };
+
+      console.log("Prepared transaction:", {
+        hasInstructions: transaction.instructions.length > 0,
+        numInstructions: transaction.instructions.length,
+        firstProgramId: transaction.instructions[0]?.programId.toString(),
+        blockHash: transaction.recentBlockhash,
+        feePayer: transaction.feePayer?.toString(),
+      });
+
+      // Execute using GOAT wallet client
+      const result = await walletClient.sendTransaction(goatTransaction);
+      console.log("Transaction executed:", result);
+
       return {
-        txid,
+        txid: result.hash,
         inputAmount: quote.inAmount,
         outputAmount: quote.outAmount,
       };
     } catch (error) {
-      console.error("Error executing swap:", error);
+      console.error("Detailed swap execution error:", {
+        error: error.message,
+        name: error.name,
+        stack: error.stack,
+        rawError: error,
+      });
       return null;
     }
   }
