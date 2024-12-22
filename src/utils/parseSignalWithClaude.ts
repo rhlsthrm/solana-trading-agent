@@ -3,6 +3,7 @@ import { IAgentRuntime, ModelClass } from "@ai16z/eliza";
 import { generateObject } from "@ai16z/eliza";
 import { z } from "zod";
 import { generateId } from "./uuid";
+import { SignalSchema } from "../services/TelegramMonitorService";
 
 // Define the shape of our extracted data
 export type SignalExtractionType = {
@@ -17,12 +18,13 @@ export type SignalExtractionType = {
   sentiment?: "BULLISH" | "NEUTRAL" | "BEARISH";
   tags?: string[];
   expectedTimeHorizon?: string;
+  isTradeSignal: boolean;
 };
 
 export interface EnhancedSignal extends SignalExtractionType {
   id: string;
   tokenAddress: string;
-  isTradeSignal: boolean;
+  // isTradeSignal?: boolean;
 }
 
 // Define schema for signal extraction
@@ -38,6 +40,7 @@ const SignalExtractionSchema = z.object({
   sentiment: z.enum(["BULLISH", "NEUTRAL", "BEARISH"]).optional(),
   tags: z.array(z.string()).optional(),
   expectedTimeHorizon: z.string().optional(),
+  isTradeSignal: z.literal(true),
 });
 
 const SIGNAL_EXTRACTION_PROMPT = `
@@ -57,25 +60,33 @@ export async function parseSignalWithClaude(
 ): Promise<EnhancedSignal | null> {
   try {
     // First extract token address using regex as it's reliable
+    const addressPattern =
+      /\b(0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})\b/;
 
-    console.log("Runtime model config:", {
-      provider: runtime.modelProvider,
-      hasToken: !!runtime.token,
-    });
-
-    const addressPattern = /\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/;
+    console.log("addressPattern", addressPattern);
     const addressMatch = text.match(addressPattern);
+    console.log("addressMatch", addressMatch);
+    console.log("text", text);
+
     if (!addressMatch) {
       return null;
     }
     const tokenAddress = addressMatch[0];
 
+    // Add debug logging
+    console.log("Attempting generateObject with runtime:", {
+      modelProvider: runtime.modelProvider,
+      hasToken: !!runtime.token,
+      modelClass: ModelClass.LARGE, // Use LARGE instead of SMALL
+    });
+
     // Use generateObject to extract structured data
     const result = await generateObject({
-      runtime,
+      runtime: runtime,
       context: SIGNAL_EXTRACTION_PROMPT.replace("{{text}}", text),
-      modelClass: ModelClass.SMALL,
-      schema: SignalExtractionSchema,
+      modelClass: ModelClass.LARGE, // Changed from SMALL to LARGE
+      schema: SignalSchema,
+      mode: "auto",
     });
 
     const extractedData = result.object as SignalExtractionType;
@@ -90,6 +101,11 @@ export async function parseSignalWithClaude(
     return signal;
   } catch (error) {
     console.error("Error in parseSignalWithClaude:", error);
+    console.error("Error details:", {
+      modelProvider: runtime.modelProvider,
+      hasToken: !!runtime.token,
+      modelClass: ModelClass.LARGE,
+    });
     return null;
   }
 }

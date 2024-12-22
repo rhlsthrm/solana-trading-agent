@@ -3,20 +3,15 @@ import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
 import { NewMessage } from "telegram/events";
 import input from "input";
-import { IAgentRuntime, generateObject, ModelClass } from "@ai16z/eliza";
+import { IAgentRuntime } from "@ai16z/eliza";
 import { z } from "zod";
 import Database from "better-sqlite3";
 import { JupiterService } from "./JupiterService";
 import { TradeExecutionService } from "./TradeExecutionService";
-import { generateId } from "ai";
-import {
-  EnhancedSignal,
-  SignalExtractionType,
-} from "../utils/parseSignalWithClaude";
-import { SIGNAL_EXTRACTION_PROMPT } from "../utils/prompts";
+import { parseSignalWithClaude } from "../utils/parseSignalWithClaude";
 
 // Enhanced signal schema with more trading-specific fields
-const SignalSchema = z.object({
+export const SignalSchema = z.object({
   isTradeSignal: z.boolean(),
   type: z.enum(["BUY", "SELL", "UNKNOWN"]),
   tokenAddress: z.string().optional(),
@@ -121,7 +116,7 @@ export class TelegramMonitorService {
       console.log(message.text);
 
       try {
-        const signal = await this.parseSignalWithClaude(message.text);
+        const signal = await parseSignalWithClaude(message.text, this.runtime);
         console.log("signal", signal);
 
         if (signal?.isTradeSignal && signal.tokenAddress) {
@@ -155,56 +150,6 @@ export class TelegramMonitorService {
     }
   }
 
-  private async parseSignalWithClaude(
-    text: string,
-    idGenerator = generateId
-  ): Promise<EnhancedSignal | null> {
-    try {
-      // First extract token address using regex as it's reliable
-      const addressPattern = /\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/;
-      const addressMatch = text.match(addressPattern);
-      if (!addressMatch) {
-        return null;
-      }
-      const tokenAddress = addressMatch[0];
-
-      // Add debug logging
-      console.log("Attempting generateObject with runtime:", {
-        modelProvider: this.runtime.modelProvider,
-        hasToken: !!this.runtime.token,
-        modelClass: ModelClass.LARGE, // Use LARGE instead of SMALL
-      });
-
-      // Use generateObject to extract structured data
-      const result = await generateObject({
-        runtime: this.runtime,
-        context: SIGNAL_EXTRACTION_PROMPT.replace("{{text}}", text),
-        modelClass: ModelClass.LARGE, // Changed from SMALL to LARGE
-        schema: SignalSchema,
-      });
-
-      const extractedData = result.object as SignalExtractionType;
-
-      // Construct enhanced signal
-      const signal: EnhancedSignal = {
-        id: idGenerator(),
-        tokenAddress,
-        isTradeSignal: true,
-        ...extractedData,
-      };
-
-      return signal;
-    } catch (error) {
-      console.error("Error in parseSignalWithClaude:", error);
-      console.error("Error details:", {
-        modelProvider: this.runtime.modelProvider,
-        hasToken: !!this.runtime.token,
-        modelClass: ModelClass.LARGE,
-      });
-      return null;
-    }
-  }
-
   private async validateSignal(signal: Signal): Promise<boolean> {
     try {
       // Get token info from Jupiter
@@ -217,16 +162,16 @@ export class TelegramMonitorService {
       }
 
       // Check minimum liquidity
-      if (tokenInfo.liquidity < this.minLiquidity) {
-        console.log(`❌ Insufficient liquidity: $${tokenInfo.liquidity}`);
-        return false;
-      }
+      // if (tokenInfo.liquidity < this.minLiquidity) {
+      //   console.log(`❌ Insufficient liquidity: $${tokenInfo.liquidity}`);
+      //   return false;
+      // }
 
-      // Check minimum volume
-      if (tokenInfo.volume24h < this.minVolume) {
-        console.log(`❌ Insufficient 24h volume: $${tokenInfo.volume24h}`);
-        return false;
-      }
+      // // Check minimum volume
+      // if (tokenInfo.volume24h < this.minVolume) {
+      //   console.log(`❌ Insufficient 24h volume: $${tokenInfo.volume24h}`);
+      //   return false;
+      // }
 
       // Check if we've already traded this token recently
       const recentTrade = this.db

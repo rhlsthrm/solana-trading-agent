@@ -1,4 +1,5 @@
 // src/services/trade-execution.ts
+import { WalletClientBase } from "@goat-sdk/core";
 import { JupiterService } from "./JupiterService";
 import { Database } from "better-sqlite3";
 import { v4 as uuidv4 } from "uuid";
@@ -29,7 +30,7 @@ export class TradeExecutionService {
 
   constructor(
     private jupiterService: JupiterService,
-    private walletClient: any, // GOAT wallet client
+    private walletClient: WalletClientBase, // GOAT wallet client
     private db: Database
   ) {}
 
@@ -39,7 +40,8 @@ export class TradeExecutionService {
 
       // 1. Get wallet balance
       const walletAddress = this.walletClient.getAddress();
-      const solBalance = await this.walletClient.balanceOf(walletAddress);
+      const balance = await this.walletClient.balanceOf(walletAddress);
+      const solBalance = Number(balance.value) / 1e9; // Convert to SOL
       console.log(`Current wallet balance: ${solBalance} SOL`);
 
       // 2. Calculate position size
@@ -53,6 +55,8 @@ export class TradeExecutionService {
         amount: positionSize * 1e9, // Convert to lamports
         slippageBps: this.DEFAULT_SLIPPAGE_BPS,
       });
+
+      console.log("quote", quote);
 
       if (!quote) {
         console.error("❌ Failed to get quote from Jupiter");

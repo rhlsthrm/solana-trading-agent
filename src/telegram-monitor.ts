@@ -69,7 +69,14 @@ async function initializeDatabase(): Promise<Database.Database> {
       signal_type TEXT,
       price NUMERIC,
       timestamp INTEGER DEFAULT (unixepoch()),
-      processed INTEGER DEFAULT 0
+      processed INTEGER DEFAULT 0,
+      risk_level TEXT,
+      confidence NUMERIC,
+      timeframe TEXT,
+      stop_loss NUMERIC,
+      take_profit NUMERIC,
+      liquidity NUMERIC,
+      volume_24h NUMERIC
     );
 
     CREATE TABLE IF NOT EXISTS trades (

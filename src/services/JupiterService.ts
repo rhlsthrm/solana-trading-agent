@@ -1,4 +1,3 @@
-// src/services/jupiter.ts
 import { PublicKey } from "@solana/web3.js";
 
 interface JupiterToken {
@@ -9,12 +8,6 @@ interface JupiterToken {
   logoURI?: string;
   tags: string[];
   daily_volume: number;
-  created_at: string;
-  freeze_authority: string | null;
-  mint_authority: string | null;
-  extensions: {
-    coingeckoId?: string;
-  };
 }
 
 interface TokenInfo {
@@ -25,16 +18,7 @@ interface TokenInfo {
   liquidity: number;
   volume24h: number;
   price?: number;
-  priceChange24h?: number;
-  marketCap?: number;
   verified: boolean;
-}
-
-interface QuoteParams {
-  inputMint: string;
-  outputMint: string;
-  amount: number;
-  slippageBps: number;
 }
 
 interface QuoteResponse {
@@ -57,22 +41,9 @@ interface SwapResponse {
 
 export class JupiterService {
   private readonly TOKENS_API = "https://tokens.jup.ag/";
-  private readonly PRICE_API = "https://price.jup.ag/v4";
   private readonly QUOTE_API = "https://quote-api.jup.ag/v6";
-  private readonly CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
-  private tokenCache: { data: JupiterToken[] | null; timestamp: number } = {
-    data: null,
-    timestamp: 0,
-  };
-  private priceCache: Map<string, { price: number; timestamp: number }> =
-    new Map();
 
-  constructor(
-    private config: {
-      minLiquidity: number;
-      minVolume24h: number;
-    }
-  ) {}
+  constructor(private config: { minLiquidity: number; minVolume24h: number }) {}
 
   private async fetchWithRetry(
     url: string,
@@ -113,124 +84,78 @@ export class JupiterService {
     throw lastError;
   }
 
-  private async getVerifiedTokens(): Promise<JupiterToken[]> {
-    const now = Date.now();
-    if (
-      this.tokenCache.data &&
-      now - this.tokenCache.timestamp < this.CACHE_DURATION
-    ) {
-      return this.tokenCache.data;
-    }
-
-    console.log("Fetching verified tokens from Jupiter...");
-    const response = await this.fetchWithRetry(
-      `${this.TOKENS_API}tokens?tags=verified`
-    );
-
-    this.tokenCache = {
-      data: response,
-      timestamp: now,
-    };
-
-    return this.tokenCache.data;
-  }
-
-  public async fetchTradeableTokens(limit: number = 100): Promise<TokenInfo[]> {
-    try {
-      console.log("Fetching tradeable tokens from Jupiter...");
-
-      // Get verified tokens first
-      const tokens = await this.getVerifiedTokens();
-      console.log(`Found ${tokens.length} verified tokens`);
-
-      // Get price data for all tokens
-      const priceData = await this.fetchWithRetry(
-        `${this.PRICE_API}/price?ids=${tokens.map((t) => t.address).join(",")}`
-      );
-
-      // Filter and sort by daily volume
-      const tradeableTokens = await Promise.all(
-        tokens
-          .filter((token) => token.daily_volume >= this.config.minVolume24h)
-          .sort((a, b) => b.daily_volume - a.daily_volume)
-          .slice(0, Math.min(tokens.length, limit))
-          .map(async (token) => {
-            const priceInfo = priceData?.data?.[token.address];
-            return {
-              address: token.address,
-              symbol: token.symbol,
-              name: token.name,
-              decimals: token.decimals,
-              liquidity: priceInfo?.marketCap || 0,
-              volume24h: token.daily_volume,
-              price: priceInfo?.price,
-              priceChange24h: priceInfo?.priceChange24h,
-              marketCap: priceInfo?.marketCap,
-              verified: true,
-            };
-          })
-      );
-
-      console.log(
-        `Found ${tradeableTokens.length} tradeable tokens meeting criteria`
-      );
-      return tradeableTokens;
-    } catch (error) {
-      console.error("Error fetching tradeable tokens:", error);
-      throw error;
-    }
-  }
-
   public async getTokenInfo(tokenAddress: string): Promise<TokenInfo | null> {
     try {
-      // Check cache first
-      const token = this.tokenCache.data?.find(
-        (t) => t.address === tokenAddress
-      );
-      if (!token) {
+      console.log(`Fetching info for token ${tokenAddress}...`);
+
+      // Full URL logging
+      const fullUrl = `${this.TOKENS_API}token/${tokenAddress}`;
+      console.log(`Full URL being called: ${fullUrl}`);
+
+      const tokenResponse = await this.fetchWithRetry(fullUrl);
+
+      // More detailed response logging
+      console.log("Token Response:", JSON.stringify(tokenResponse, null, 2));
+
+      if (!tokenResponse) {
+        console.warn(`No token found for address: ${tokenAddress}`);
         return null;
       }
 
-      // Get price data
+      const token = tokenResponse as JupiterToken;
       const priceData = await this.fetchWithRetry(
-        `${this.PRICE_API}/price?ids=${tokenAddress}`
+        `${
+          this.QUOTE_API
+        }/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${tokenAddress}&amount=${
+          10 ** token.decimals
+        }`,
+        {
+          headers: {
+            Accept: "application/json",
+          },
+        }
       );
 
-      const priceInfo = priceData?.data?.[tokenAddress];
+      console.log("priceData", priceData);
 
       return {
         address: token.address,
         symbol: token.symbol,
         name: token.name,
         decimals: token.decimals,
-        liquidity: priceInfo?.marketCap || 0,
         volume24h: token.daily_volume,
-        price: priceInfo?.price,
-        priceChange24h: priceInfo?.priceChange24h,
-        marketCap: priceInfo?.marketCap,
         verified: true,
+        liquidity: 0,
+        price: 0,
       };
     } catch (error) {
-      console.error(`Error fetching info for token ${tokenAddress}:`, error);
+      console.error(`Detailed error fetching info for token ${tokenAddress}:`, {
+        error,
+        errorName: error.name,
+        errorMessage: error.message,
+        errorStack: error.stack,
+      });
       return null;
     }
   }
 
-  public async getQuote(params: QuoteParams): Promise<QuoteResponse | null> {
+  public async getQuote(params: {
+    inputMint: string;
+    outputMint: string;
+    amount: number;
+    slippageBps: number;
+  }): Promise<QuoteResponse | null> {
     try {
-      const response = await this.fetchWithRetry(`${this.QUOTE_API}/quote`, {
-        method: "POST",
-        body: JSON.stringify({
-          inputMint: new PublicKey(params.inputMint).toString(),
-          outputMint: new PublicKey(params.outputMint).toString(),
-          amount: params.amount,
-          slippageBps: params.slippageBps,
-          onlyDirectRoutes: false,
-          asLegacyTransaction: false,
-        }),
-      });
+      const quoteResponse = await this.fetchWithRetry(
+        `${this.QUOTE_API}/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${params.outputMint}&amount=${params.amount}`,
+        {
+          headers: {
+            Accept: "application/json",
+          },
+        }
+      );
 
-      return response;
+      return quoteResponse;
     } catch (error) {
       console.error("Error getting quote:", error);
       return null;
@@ -266,76 +191,6 @@ export class JupiterService {
       };
     } catch (error) {
       console.error("Error executing swap:", error);
-      return null;
-    }
-  }
-
-  public async getLiquidityDepth(
-    tokenAddress: string,
-    amountUsd: number
-  ): Promise<{
-    canFill: boolean;
-    expectedSlippage: number;
-  }> {
-    try {
-      // Get SOL price first (since we'll be swapping from SOL)
-      const solPrice = await this.getTokenPrice(
-        "So11111111111111111111111111111111111111112"
-      );
-      if (!solPrice) {
-        throw new Error("Could not get SOL price");
-      }
-
-      // Convert USD amount to SOL
-      const solAmount = amountUsd / solPrice;
-
-      // Get quote to check slippage
-      const quote = await this.getQuote({
-        inputMint: "So11111111111111111111111111111111111111112",
-        outputMint: tokenAddress,
-        amount: solAmount * 1e9, // Convert to lamports
-        slippageBps: 10000, // Allow high slippage for testing
-      });
-
-      if (!quote) {
-        return { canFill: false, expectedSlippage: 100 };
-      }
-
-      return {
-        canFill: true,
-        expectedSlippage: quote.priceImpactPct,
-      };
-    } catch (error) {
-      console.error("Error checking liquidity depth:", error);
-      return { canFill: false, expectedSlippage: 100 };
-    }
-  }
-
-  public async getTokenPrice(tokenAddress: string): Promise<number | null> {
-    try {
-      // Check cache first
-      const cached = this.priceCache.get(tokenAddress);
-      if (cached && Date.now() - cached.timestamp < this.CACHE_DURATION) {
-        return cached.price;
-      }
-
-      const response = await this.fetchWithRetry(
-        `${this.PRICE_API}/price?ids=${tokenAddress}`
-      );
-
-      const price = response?.data?.[tokenAddress]?.price || null;
-
-      // Update cache
-      if (price !== null) {
-        this.priceCache.set(tokenAddress, {
-          price,
-          timestamp: Date.now(),
-        });
-      }
-
-      return price;
-    } catch (error) {
-      console.error(`Error fetching price for token ${tokenAddress}:`, error);
       return null;
     }
   }
