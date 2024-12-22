@@ -22,6 +22,7 @@ export type SignalExtractionType = {
 export interface EnhancedSignal extends SignalExtractionType {
   id: string;
   tokenAddress: string;
+  isTradeSignal: boolean;
 }
 
 // Define schema for signal extraction
@@ -56,6 +57,12 @@ export async function parseSignalWithClaude(
 ): Promise<EnhancedSignal | null> {
   try {
     // First extract token address using regex as it's reliable
+
+    console.log("Runtime model config:", {
+      provider: runtime.modelProvider,
+      hasToken: !!runtime.token,
+    });
+
     const addressPattern = /\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/;
     const addressMatch = text.match(addressPattern);
     if (!addressMatch) {

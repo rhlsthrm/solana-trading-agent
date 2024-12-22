@@ -1,13 +1,17 @@
+// telegram-monitor.ts:
 import "dotenv/config";
-import { AgentRuntime, DatabaseAdapter } from "@ai16z/eliza";
+import { AgentRuntime } from "@ai16z/eliza";
 import { solana } from "@goat-sdk/wallet-solana";
-import { createTelegramMonitorService } from "./services/telegram";
-import { Keypair, Connection } from "@solana/web3.js";
+import { createTelegramMonitorService } from "./services/TelegramMonitorService";
+import { Connection } from "@solana/web3.js";
 import { ModelProviderName } from "@ai16z/eliza";
 import { jupiter } from "@goat-sdk/plugin-jupiter";
 import Database from "better-sqlite3";
 import { SqliteDatabaseAdapter } from "@ai16z/adapter-sqlite";
 import { createKeypairFromSecret } from "./utils/solana";
+import { degen } from "./characters/degen";
+import { createJupiterService } from "./services/JupiterService";
+import { createTradeExecutionService } from "./services/TradeExecutionService";
 
 async function initializeDatabase(): Promise<Database.Database> {
   // Initialize SQLite database with schema
@@ -79,6 +83,7 @@ async function initializeDatabase(): Promise<Database.Database> {
       exit_time INTEGER,
       profit_loss NUMERIC,
       status TEXT,
+      tx_id TEXT,
       FOREIGN KEY (signal_id) REFERENCES signals(id)
     );
 
@@ -155,51 +160,7 @@ async function createRuntime(dbAdapter: SqliteDatabaseAdapter) {
     modelProvider: ModelProviderName.ANTHROPIC,
     databaseAdapter: dbAdapter,
     token: process.env.ANTHROPIC_API_KEY || "",
-    character: {
-      name: "TelegramTradeBot",
-      modelProvider: ModelProviderName.ANTHROPIC,
-      settings: {
-        model: "claude-3-opus-20240229",
-        secrets: {
-          ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || "",
-        },
-      },
-      bio: "Autonomous Solana trading bot monitoring Telegram signals",
-      lore: [
-        "This bot monitors Telegram channels for trading signals and executes trades on Solana.",
-        "It uses technical analysis to validate signals before trading.",
-        "Risk management and position sizing are key priorities.",
-      ],
-      messageExamples: [
-        [
-          {
-            user: "User123",
-            content: {
-              text: "What signals are you monitoring?",
-            },
-          },
-          {
-            user: "TelegramTradeBot",
-            content: {
-              text: "I'm currently monitoring @DegenSeals for trading signals. Each signal is validated using technical analysis before any trade execution.",
-            },
-          },
-        ],
-      ],
-      postExamples: [
-        "New signal detected from @DegenSeals - Analyzing technical indicators...",
-        "Trade executed: Bought TOKEN at $1.50 with strict stop loss at $1.35",
-      ],
-      topics: ["Solana", "Trading", "Technical Analysis", "Risk Management"],
-      plugins: [],
-      adjectives: ["Analytical", "Cautious", "Precise", "Data-driven"],
-      clients: [],
-      style: {
-        all: ["Professional", "Data-focused", "Risk-aware"],
-        chat: ["Clear", "Precise", "Technical"],
-        post: ["Factual", "Analytical", "Risk-focused"],
-      },
-    },
+    character: degen,
     providers: [],
     actions: [],
     plugins: [jupiter()],
@@ -220,10 +181,21 @@ async function main() {
     const dbAdapter = new SqliteDatabaseAdapter(sqliteDb);
 
     // Initialize wallet
-    await initializeWallet();
+    const { walletClient } = await initializeWallet();
 
     // Create runtime
     const runtime = await createRuntime(dbAdapter);
+
+    const jupiterService = createJupiterService({
+      minLiquidity: Number(process.env.MIN_LIQUIDITY) || 50000, // $50k default
+      minVolume24h: Number(process.env.MIN_VOLUME_24H) || 10000, // $10k default
+    });
+
+    const tradeExecutionService = createTradeExecutionService(
+      jupiterService,
+      walletClient,
+      sqliteDb
+    );
 
     // Initialize Telegram monitor
     const telegramMonitor = createTelegramMonitorService({
@@ -231,9 +203,19 @@ async function main() {
       apiHash: process.env.TELEGRAM_API_HASH,
       sessionStr: process.env.TELEGRAM_SESSION,
       runtime: runtime,
+      db: sqliteDb, // Pass your database instance
+      jupiterService: jupiterService, // Pass your Jupiter service instance
+      tradeExecutionService: tradeExecutionService,
     });
 
     console.log("Starting Telegram monitor...");
+
+    console.log("Runtime config:", {
+      modelProvider: runtime.modelProvider,
+      token: runtime.token ? "exists" : "missing",
+      character: runtime.character.name,
+    });
+
     await telegramMonitor.start();
 
     // Keep the process running
