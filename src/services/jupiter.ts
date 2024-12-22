@@ -1,6 +1,5 @@
 // src/services/jupiter.ts
 import { PublicKey } from "@solana/web3.js";
-import { IAgentRuntime } from "@ai16z/eliza";
 
 interface JupiterToken {
   address: string;

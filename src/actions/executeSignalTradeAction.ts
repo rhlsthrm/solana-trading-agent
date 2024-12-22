@@ -1,11 +1,10 @@
 // src/actions/executeSignalTrade.ts
 import { Action, IAgentRuntime, Memory, ServiceType } from "@ai16z/eliza";
 import { SignalTradeProcessor } from "../processors/SignalTradeProcessor";
-import { parseSignal } from "../utils/parseSignal";
 import { createJupiterService } from "../services/jupiter";
-import { createTechnicalAnalysisService } from "../services/technical-analysis";
 import Database from "better-sqlite3";
 import { TradingContextService } from "../services/TradingContext";
+import { parseSignalWithClaude } from "../utils/parseSignalWithClaude";
 
 const executeSignalTradeAction: Action = {
   name: "EXECUTE_SIGNAL_TRADE",
@@ -33,7 +32,7 @@ const executeSignalTradeAction: Action = {
       }
 
       // Parse signal from message
-      const signal = parseSignal(message.content.text);
+      const signal = await parseSignalWithClaude(message.content.text);
       if (!signal) {
         console.log("No valid signal found in message");
         return false;
@@ -45,17 +44,11 @@ const executeSignalTradeAction: Action = {
         minVolume24h: Number(runtime.getSetting("MIN_VOLUME_24H") || "10000"),
       });
 
-      const technicalAnalysis = createTechnicalAnalysisService(
-        tradingContext.connection,
-        ["5m", "15m", "1h"]
-      );
-
       const db = new Database("trading.db");
 
       // Create trade processor
       const processor = new SignalTradeProcessor(
         jupiterService,
-        technicalAnalysis,
         db,
         {
           minLiquidity: Number(runtime.getSetting("MIN_LIQUIDITY") || "50000"),

@@ -1,9 +1,16 @@
 // src/processors/SignalTradeProcessor.ts
 import { JupiterService } from "../services/jupiter";
-import { TechnicalAnalysisService } from "../services/technical-analysis";
 import Database from "better-sqlite3";
-import { Signal } from "../utils/parseSignal";
 import { PublicKey } from "@solana/web3.js";
+
+export interface Signal {
+  id: string;
+  tokenAddress: string;
+  type: "BUY" | "SELL";
+  price: number;
+  riskLevel?: "LOW" | "MEDIUM" | "HIGH";
+  timeframe?: string;
+}
 
 interface TradeConfig {
   minLiquidity: number;
@@ -35,7 +42,6 @@ interface TradeResult {
 export class SignalTradeProcessor {
   constructor(
     private jupiterService: JupiterService,
-    private technicalAnalysis: TechnicalAnalysisService,
     private db: Database.Database,
     private config: TradeConfig,
     private walletClient: any // GOAT wallet client

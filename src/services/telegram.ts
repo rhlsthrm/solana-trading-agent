@@ -1,25 +1,35 @@
+// telegram.ts
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
 import { NewMessage } from "telegram/events";
 import input from "input";
-import Database from "better-sqlite3";
-import { parseSignal } from "../utils/parseSignal";
+import { IAgentRuntime, generateObject, ModelClass } from "@ai16z/eliza";
+import { z } from "zod";
+
+// Define a schema for signal parsing
+const SignalSchema = z.object({
+  isTradeSignal: z.boolean(),
+  type: z.enum(["BUY", "SELL", "UNKNOWN"]).optional(),
+  tokenAddress: z.string().optional(),
+  price: z.number().optional(),
+  riskLevel: z.enum(["LOW", "MEDIUM", "HIGH"]).optional(),
+  confidence: z.number().min(0).max(100).optional(),
+  timeframe: z.string().optional(),
+});
 
 export class TelegramMonitorService {
   private client: TelegramClient;
-  private db: Database.Database;
   private channelIds: string[] = ["@DegenSeals"];
+  private runtime: IAgentRuntime;
 
   constructor(
     private config: {
       apiId: number;
       apiHash: string;
       sessionStr?: string;
-      dbPath: string;
+      runtime: IAgentRuntime;
     }
   ) {
-    this.db = new Database(config.dbPath);
-
     // Initialize Telegram client with string session
     const stringSession = new StringSession(config.sessionStr || "");
     this.client = new TelegramClient(
@@ -30,6 +40,7 @@ export class TelegramMonitorService {
         connectionRetries: 5,
       }
     );
+    this.runtime = config.runtime;
   }
 
   async start() {
@@ -61,37 +72,25 @@ export class TelegramMonitorService {
           return;
         }
 
-        console.log(`New message from ${chat.username}:`, message.text);
+        console.log(`📣 New message from ${chat.username}:`);
+        console.log(message.text);
 
-        // Parse signal from message
-        const signal = parseSignal(message.text);
-        if (!signal) {
-          console.log("No trading signal found in message");
-          return;
+        try {
+          // Use Claude to parse the signal
+          const signalResult = await this.parseSignalWithClaude(message.text);
+
+          if (signalResult.isTradeSignal) {
+            console.log("🚨 Trading Signal Detected!");
+            console.log(
+              "Signal Details:",
+              JSON.stringify(signalResult, null, 2)
+            );
+
+            // Here you can add logic to execute trade or further process the signal
+          }
+        } catch (parseError) {
+          console.error("Error parsing signal:", parseError);
         }
-
-        // Store signal in database
-        const stmt = this.db.prepare(`
-          INSERT INTO signals (
-            id,
-            source,
-            token_address,
-            signal_type,
-            price,
-            timestamp,
-            processed
-          ) VALUES (?, ?, ?, ?, ?, datetime('now'), false)
-        `);
-
-        stmt.run(
-          signal.id,
-          "telegram",
-          signal.tokenAddress,
-          signal.type,
-          signal.price
-        );
-
-        console.log("Stored new signal:", signal);
       }, new NewMessage({}));
 
       // Try to verify we can access the channel
@@ -111,11 +110,40 @@ export class TelegramMonitorService {
     }
   }
 
+  private async parseSignalWithClaude(text: string) {
+    const prompt = `
+Analyze the following Telegram message and determine if it's a trading signal:
+
+Message:
+${text}
+
+Instructions:
+1. Determine if this is a trading signal
+2. If it is a signal, extract:
+   - Signal type (BUY/SELL/UNKNOWN)
+   - Token address (if present)
+   - Entry price (if mentioned)
+   - Risk level (LOW/MEDIUM/HIGH)
+   - Confidence in the signal (0-100)
+   - Expected timeframe
+
+Provide a structured response following the schema:
+`;
+
+    const result = await generateObject({
+      runtime: this.runtime,
+      context: prompt,
+      modelClass: ModelClass.SMALL, // Use a smaller, faster model
+      schema: SignalSchema,
+    });
+
+    return result.object;
+  }
+
   async stop() {
     try {
       console.log("Disconnecting from Telegram...");
       await this.client.disconnect();
-      this.db.close();
       console.log("Cleanup completed successfully");
     } catch (error) {
       console.error("Error during cleanup:", error);
@@ -127,7 +155,7 @@ export const createTelegramMonitorService = (config: {
   apiId: number;
   apiHash: string;
   sessionStr?: string;
-  dbPath: string;
+  runtime: IAgentRuntime;
 }) => {
   return new TelegramMonitorService(config);
 };
