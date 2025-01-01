@@ -4,9 +4,7 @@ export const degen = {
   name: "DegenTraderBot",
   modelProvider: ModelProviderName.ANTHROPIC,
   settings: {
-    secrets: {
-      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || "",
-    },
+    secrets: {},
   },
   plugins: [],
   bio: [

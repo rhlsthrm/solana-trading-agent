@@ -42,7 +42,7 @@ type Signal = z.infer<typeof SignalSchema>;
 
 export class TelegramMonitorService {
   private client: TelegramClient;
-  private channelIds: string[] = ["DegenSeals", "goattests"];
+  private channelIds: string[] = ["DegenSeals", "fadedarc", "goattests"];
   private runtime: IAgentRuntime;
   private db: Database.Database;
   private jupiterService: JupiterService;
