@@ -3,24 +3,7 @@ import { WalletClientBase } from "@goat-sdk/core";
 import { JupiterService } from "./JupiterService";
 import { Database } from "better-sqlite3";
 import { v4 as uuidv4 } from "uuid";
-
-interface Trade {
-  id: string;
-  tokenAddress: string;
-  signalId: string;
-  entryPrice: number;
-  positionSize: number;
-  stopLossPrice: number;
-  status: "PENDING" | "EXECUTED" | "FAILED" | "CLOSED";
-}
-
-export interface TradeSignal {
-  id: string;
-  tokenAddress: string;
-  type: "BUY" | "SELL";
-  price?: number;
-  confidence: number;
-}
+import { Trade, TradeSignal } from "../types/trade";
 
 export class TradeExecutionService {
   private readonly WRAPPED_SOL = "So11111111111111111111111111111111111111112";

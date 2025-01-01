@@ -1,78 +1,11 @@
-import { Transaction, TransactionInstruction } from "@solana/web3.js";
-type Chain = {
-  type: "evm" | "solana" | "aptos" | "chromia";
-  id?: number;
-};
-
-type Signature = {
-  signature: string;
-};
-type Balance = {
-  decimals: number;
-  symbol: string;
-  name: string;
-  value: bigint;
-};
-interface WalletClient {
-  getAddress: () => string;
-  getChain: () => Chain;
-  signMessage: (message: string) => Promise<Signature>;
-  balanceOf: (address: string) => Promise<Balance>;
-}
-
-type SolanaTransaction = {
-  instructions: TransactionInstruction[];
-  addressLookupTableAddresses?: string[];
-};
-type SolanaReadRequest = {
-  accountAddress: string;
-};
-type SolanaReadResult = {
-  value: unknown;
-};
-type SolanaTransactionResult = {
-  hash: string;
-};
-interface SolanaWalletClient extends WalletClient {
-  sendTransaction: (
-    transaction: SolanaTransaction
-  ) => Promise<SolanaTransactionResult>;
-  read: (request: SolanaReadRequest) => Promise<SolanaReadResult>;
-}
-
-interface TokenInfo {
-  address: string;
-  symbol: string;
-  name: string;
-  decimals: number;
-  liquidity: number;
-  volume24h: number;
-  price?: number;
-  verified: boolean;
-  confidenceLevel?: number;
-  priceImpact: {
-    buy: Record<string, number>;
-    sell: Record<string, number>;
-  };
-}
-
-interface QuoteResponse {
-  inputMint: string;
-  outputMint: string;
-  inAmount: number;
-  outAmount: number;
-  otherAmountThreshold: number;
-  swapMode: string;
-  priceImpactPct: number;
-  routePlan: any[];
-  contextSlot: number;
-}
-
-interface SwapResponse {
-  txid: string;
-  inputAmount: number;
-  outputAmount: number;
-}
+import { Transaction } from "@solana/web3.js";
+import {
+  QuoteResponse,
+  SolanaTransaction,
+  SolanaWalletClient,
+  SwapResponse,
+  TokenInfo,
+} from "../types/trade";
 
 export class JupiterService {
   private readonly TOKENS_API = "https://tokens.jup.ag/";
@@ -142,16 +75,10 @@ export class JupiterService {
         address: tokenResponse.address,
         symbol: tokenResponse.symbol,
         name: tokenResponse.name,
-        decimals: tokenResponse.decimals,
         volume24h: tokenResponse.daily_volume,
-        verified: true,
         liquidity: extraInfo?.depth?.buyPriceImpactRatio?.depth?.[100] || 0, // Use 100 SOL depth as liquidity indicator
         price: parseFloat(priceData?.price || "0"),
-        confidenceLevel: extraInfo?.confidenceLevel,
-        priceImpact: {
-          buy: extraInfo?.depth?.buyPriceImpactRatio?.depth,
-          sell: extraInfo?.depth?.sellPriceImpactRatio?.depth,
-        },
+        isValid: true,
       };
     } catch (error) {
       console.error(`Error fetching info for token ${tokenAddress}:`, error);

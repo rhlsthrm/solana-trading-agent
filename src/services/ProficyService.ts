@@ -1,17 +1,6 @@
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
-
-interface TokenInfo {
-  address: string;
-  symbol: string;
-  name: string;
-  price: number;
-  marketCap?: number;
-  liquidity?: number;
-  volume24h?: number;
-  holders?: number;
-  isValid: boolean;
-}
+import { TokenInfo } from "../types/trade";
 
 export class ProficyService {
   private client: TelegramClient;
