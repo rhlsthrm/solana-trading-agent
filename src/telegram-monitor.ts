@@ -12,6 +12,7 @@ import { createKeypairFromSecret } from "./utils/solana";
 import { degen } from "./characters/degen";
 import { createJupiterService } from "./services/JupiterService";
 import { createTradeExecutionService } from "./services/TradeExecutionService";
+import { createProficyService } from "./services/ProficyService";
 
 async function initializeDatabase(): Promise<Database.Database> {
   // Initialize SQLite database with schema
@@ -170,6 +171,7 @@ async function createRuntime(dbAdapter: SqliteDatabaseAdapter) {
     character: degen,
     providers: [],
     actions: [],
+    // @ts-ignore
     plugins: [jupiter()],
   });
 }
@@ -204,6 +206,14 @@ async function main() {
       sqliteDb
     );
 
+    const proficyService = createProficyService({
+      apiId: Number(process.env.TELEGRAM_API_ID),
+      apiHash: process.env.TELEGRAM_API_HASH,
+      sessionStr: process.env.TELEGRAM_SESSION,
+    });
+
+    await proficyService.init();
+
     // Initialize Telegram monitor
     const telegramMonitor = createTelegramMonitorService({
       apiId: Number(process.env.TELEGRAM_API_ID),
@@ -213,15 +223,16 @@ async function main() {
       db: sqliteDb, // Pass your database instance
       jupiterService: jupiterService, // Pass your Jupiter service instance
       tradeExecutionService: tradeExecutionService,
+      proficyService: proficyService,
     });
 
     console.log("Starting Telegram monitor...");
 
-    console.log("Runtime config:", {
-      modelProvider: runtime.modelProvider,
-      token: runtime.token ? "exists" : "missing",
-      character: runtime.character.name,
-    });
+    // console.log("Runtime config:", {
+    //   modelProvider: runtime.modelProvider,
+    //   token: runtime.token ? "exists" : "missing",
+    //   character: runtime.character.name,
+    // });
 
     await telegramMonitor.start();
 

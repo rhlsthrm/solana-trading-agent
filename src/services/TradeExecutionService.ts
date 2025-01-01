@@ -119,6 +119,7 @@ export class TradeExecutionService {
       console.log(`Executing swap...`);
       const swapResult = await this.jupiterService.executeSwap(
         quote,
+        // @ts-ignore
         this.walletClient
       );
 

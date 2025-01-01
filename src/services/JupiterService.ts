@@ -1,9 +1,4 @@
-import { WalletClientBase } from "@goat-sdk/core";
-import {
-  Transaction,
-  VersionedTransaction,
-  TransactionInstruction,
-} from "@solana/web3.js";
+import { Transaction, TransactionInstruction } from "@solana/web3.js";
 type Chain = {
   type: "evm" | "solana" | "aptos" | "chromia";
   id?: number;
@@ -45,16 +40,6 @@ interface SolanaWalletClient extends WalletClient {
   read: (request: SolanaReadRequest) => Promise<SolanaReadResult>;
 }
 
-interface JupiterToken {
-  address: string;
-  name: string;
-  symbol: string;
-  decimals: number;
-  logoURI?: string;
-  tags: string[];
-  daily_volume: number;
-}
-
 interface TokenInfo {
   address: string;
   symbol: string;
@@ -64,6 +49,11 @@ interface TokenInfo {
   volume24h: number;
   price?: number;
   verified: boolean;
+  confidenceLevel?: number;
+  priceImpact: {
+    buy: Record<string, number>;
+    sell: Record<string, number>;
+  };
 }
 
 interface QuoteResponse {
@@ -132,38 +122,39 @@ export class JupiterService {
 
   public async getTokenInfo(tokenAddress: string): Promise<TokenInfo | null> {
     try {
-      console.log(`Fetching info for token ${tokenAddress}...`);
-
-      // Full URL logging
-      const fullUrl = `${this.TOKENS_API}token/${tokenAddress}`;
-      console.log("fetching token info from", fullUrl);
-
-      const tokenResponse = await this.fetchWithRetry(fullUrl);
-
+      // Get basic token info
+      const tokenResponse = await this.fetchWithRetry(
+        `${this.TOKENS_API}token/${tokenAddress}`
+      );
       if (!tokenResponse) {
-        console.warn(`No token found for address: ${tokenAddress}`);
         return null;
       }
 
-      const token = tokenResponse as JupiterToken;
+      // Get price and liquidity info from V2 API
+      const priceResponse = await this.fetchWithRetry(
+        `https://api.jup.ag/price/v2?ids=${tokenAddress}&showExtraInfo=true`
+      );
+
+      const priceData = priceResponse?.data?.[tokenAddress];
+      const extraInfo = priceData?.extraInfo;
 
       return {
-        address: token.address,
-        symbol: token.symbol,
-        name: token.name,
-        decimals: token.decimals,
-        volume24h: token.daily_volume,
+        address: tokenResponse.address,
+        symbol: tokenResponse.symbol,
+        name: tokenResponse.name,
+        decimals: tokenResponse.decimals,
+        volume24h: tokenResponse.daily_volume,
         verified: true,
-        liquidity: 0, // gotta fix
-        price: 0, // gotta fix
+        liquidity: extraInfo?.depth?.buyPriceImpactRatio?.depth?.[100] || 0, // Use 100 SOL depth as liquidity indicator
+        price: parseFloat(priceData?.price || "0"),
+        confidenceLevel: extraInfo?.confidenceLevel,
+        priceImpact: {
+          buy: extraInfo?.depth?.buyPriceImpactRatio?.depth,
+          sell: extraInfo?.depth?.sellPriceImpactRatio?.depth,
+        },
       };
     } catch (error) {
-      console.error(`Detailed error fetching info for token ${tokenAddress}:`, {
-        error,
-        errorName: error.name,
-        errorMessage: error.message,
-        errorStack: error.stack,
-      });
+      console.error(`Error fetching info for token ${tokenAddress}:`, error);
       return null;
     }
   }
@@ -214,17 +205,17 @@ export class JupiterService {
       });
 
       return quoteResponse;
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error getting quote:", {
-        error,
+        error: error instanceof Error ? error.message : "Unknown error",
         params,
-        errorMessage: error.message,
-        errorStack: error.stack,
+        errorMessage: error instanceof Error ? error.message : "No message",
+        errorStack: error instanceof Error ? error.stack : "No stack trace",
       });
 
       // Try to get response body for more details if available
-      if (error.response) {
-        const text = await error.response.text();
+      if (error instanceof Error && (error as any).response) {
+        const text = await (error as any).response.text();
         console.error("Response body:", text);
       }
 
@@ -290,11 +281,11 @@ export class JupiterService {
         inputAmount: quote.inAmount,
         outputAmount: quote.outAmount,
       };
-    } catch (error) {
+    } catch (error: any) {
       console.error("Detailed swap execution error:", {
-        error: error.message,
-        name: error.name,
-        stack: error.stack,
+        error: error instanceof Error ? error.message : "Unknown error",
+        name: error instanceof Error ? error.name : "Unknown",
+        stack: error instanceof Error ? error.stack : "No stack trace",
         rawError: error,
       });
       return null;

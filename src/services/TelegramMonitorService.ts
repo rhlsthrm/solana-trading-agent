@@ -8,7 +8,11 @@ import { z } from "zod";
 import Database from "better-sqlite3";
 import { JupiterService } from "./JupiterService";
 import { TradeExecutionService } from "./TradeExecutionService";
-import { parseSignalWithClaude } from "../utils/parseSignalWithClaude";
+import {
+  EnhancedSignal,
+  parseSignalWithClaude,
+} from "../utils/parseSignalWithClaude";
+import { ProficyService } from "./ProficyService";
 
 // Enhanced signal schema with more trading-specific fields
 export const SignalSchema = z.object({
@@ -55,6 +59,7 @@ export class TelegramMonitorService {
       db: Database.Database;
       jupiterService: JupiterService;
       tradeExecutionService: TradeExecutionService;
+      proficyService: ProficyService; // Added ProficyService
     }
   ) {
     const stringSession = new StringSession(config.sessionStr || "");
@@ -97,10 +102,10 @@ export class TelegramMonitorService {
     });
 
     console.log("Connected to Telegram");
-    console.log(
-      "Session string (save to TELEGRAM_SESSION in .env):",
-      this.client.session.save()
-    );
+    // console.log(
+    //   "Session string (save to TELEGRAM_SESSION in .env):",
+    //   this.client.session.save()
+    // );
   }
 
   private async setupMessageHandler() {
@@ -116,15 +121,22 @@ export class TelegramMonitorService {
       console.log(message.text);
 
       try {
-        const signal = await parseSignalWithClaude(message.text, this.runtime);
-        console.log("signal", signal);
+        const signal = await parseSignalWithClaude(
+          message.text,
+          this.config.runtime,
+          this.config.proficyService
+        );
 
-        if (signal?.isTradeSignal && signal.tokenAddress) {
-          console.log("🚨 Trading Signal Detected!");
+        if (signal?.isTradeSignal) {
+          console.log("🚨 Trading Signal Detected!", {
+            token: signal.tokenAddress,
+            type: signal.type,
+            price: signal.price,
+            liquidity: signal.liquidity,
+            volume: signal.volume24h,
+          });
 
-          // Validate the signal
           const isValid = await this.validateSignal(signal);
-
           if (isValid) {
             await this.processValidSignal(signal);
           } else {
@@ -149,37 +161,28 @@ export class TelegramMonitorService {
     }
   }
 
-  private async validateSignal(signal: Signal): Promise<boolean> {
+  private async validateSignal(signal: EnhancedSignal): Promise<boolean> {
     try {
-      // Get token info from Jupiter
-      const tokenInfo = await this.jupiterService.getTokenInfo(
-        signal.tokenAddress!
-      );
-      if (!tokenInfo) {
-        console.log("❌ Token not found on Jupiter");
+      // Check minimum liquidity
+      if (signal.liquidity && signal.liquidity < this.minLiquidity) {
+        console.log(`❌ Insufficient liquidity: $${signal.liquidity}`);
         return false;
       }
 
-      // Check minimum liquidity
-      // if (tokenInfo.liquidity < this.minLiquidity) {
-      //   console.log(`❌ Insufficient liquidity: $${tokenInfo.liquidity}`);
-      //   return false;
-      // }
-
-      // // Check minimum volume
-      // if (tokenInfo.volume24h < this.minVolume) {
-      //   console.log(`❌ Insufficient 24h volume: $${tokenInfo.volume24h}`);
-      //   return false;
-      // }
+      // Check minimum volume
+      if (signal.volume24h && signal.volume24h < this.minVolume) {
+        console.log(`❌ Insufficient 24h volume: $${signal.volume24h}`);
+        return false;
+      }
 
       // Check if we've already traded this token recently
-      const recentTrade = this.db
+      const recentTrade = this.config.db
         .prepare(
           `
-        SELECT * FROM trades 
-        WHERE token_address = ? 
-        AND entry_time > unixepoch() - 86400
-      `
+          SELECT * FROM trades 
+          WHERE token_address = ? 
+          AND entry_time > unixepoch() - 86400
+        `
         )
         .get(signal.tokenAddress);
 
@@ -189,8 +192,7 @@ export class TelegramMonitorService {
       }
 
       // Store signal in database
-      await this.storeSignal(signal, tokenInfo);
-
+      await this.storeSignal(signal);
       return true;
     } catch (error) {
       console.error("Error validating signal:", error);
@@ -198,81 +200,49 @@ export class TelegramMonitorService {
     }
   }
 
-  private async storeSignal(signal: Signal, tokenInfo: any) {
-    const stmt = this.db.prepare(`
+  private async storeSignal(signal: EnhancedSignal) {
+    const stmt = this.config.db.prepare(`
       INSERT INTO signals (
-        id, 
+        id,
         source,
         token_address,
         signal_type,
         price,
         timestamp,
         processed,
-        risk_level,
         confidence,
-        timeframe,
-        stop_loss,
-        take_profit,
         liquidity,
         volume_24h
-      ) VALUES (?, ?, ?, ?, ?, unixepoch(), 0, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, unixepoch(), 0, ?, ?, ?)
     `);
 
     stmt.run(
-      crypto.randomUUID(),
+      signal.id,
       "@DegenSeals",
       signal.tokenAddress,
       signal.type,
-      signal.price,
-      signal.riskLevel,
-      signal.confidence,
-      signal.timeframe,
-      signal.stopLoss,
-      signal.takeProfit,
-      tokenInfo.liquidity,
-      tokenInfo.volume24h
+      signal.price || 0,
+      signal.confidence || 50,
+      signal.liquidity || 0,
+      signal.volume24h || 0
     );
   }
 
-  private async processValidSignal(signal: Signal) {
+  private async processValidSignal(signal: EnhancedSignal) {
     console.log("✅ Valid signal detected!");
     console.log(JSON.stringify(signal, null, 2));
 
-    // First store the signal in the database
-    const signalId = crypto.randomUUID();
-    await this.db
-      .prepare(
-        `
-            INSERT INTO signals (
-                id,
-                source,
-                token_address,
-                signal_type,
-                price,
-                confidence,
-                timestamp
-            ) VALUES (?, ?, ?, ?, ?, ?, unixepoch())
-        `
-      )
-      .run(
-        signalId,
-        "@DegenSeals",
-        signal.tokenAddress,
-        signal.type,
-        signal.price || 0,
-        signal.confidence || 0
-      );
-
-    // Then pass the signalId to trade execution
     const tradeSignal = {
-      id: signalId, // Use the same ID we stored in signals table
-      tokenAddress: signal.tokenAddress as string,
-      type: signal.type as "BUY" | "SELL",
+      id: signal.id,
+      tokenAddress: signal.tokenAddress,
+      type: signal.type,
       price: signal.price,
-      confidence: signal.confidence || 0,
+      confidence: signal.confidence || 50,
     };
 
-    const success = await this.tradeExecutionService.executeTrade(tradeSignal);
+    const success = await this.config.tradeExecutionService.executeTrade(
+      tradeSignal
+    );
     if (success) {
       console.log("🎯 Trade executed successfully");
     } else {
@@ -289,6 +259,7 @@ export const createTelegramMonitorService = (config: {
   db: Database.Database;
   jupiterService: JupiterService;
   tradeExecutionService: TradeExecutionService;
+  proficyService: ProficyService;
 }) => {
   return new TelegramMonitorService(config);
 };
