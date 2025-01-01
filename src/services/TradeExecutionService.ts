@@ -27,10 +27,11 @@ export class TradeExecutionService {
   private readonly MAX_RETRIES = 3;
   private readonly MAX_POSITION_SIZE_PERCENT = 0.02; // 2% of portfolio per trade
   private readonly DEFAULT_SLIPPAGE_BPS = 500; // 5% slippage tolerance
+  private readonly LAMPORTS_PER_SOL = 1_000_000_000;
 
   constructor(
     private jupiterService: JupiterService,
-    private walletClient: WalletClientBase, // GOAT wallet client
+    private walletClient: WalletClientBase,
     private db: Database
   ) {}
 
@@ -38,22 +39,60 @@ export class TradeExecutionService {
     try {
       console.log(`🚀 Executing trade for token ${signal.tokenAddress}`);
 
-      // 1. Get wallet balance
+      // 1. Get wallet balance in lamports
       const walletAddress = this.walletClient.getAddress();
       const balance = await this.walletClient.balanceOf(walletAddress);
-      const solBalance = Number(balance.value) / 1e9; // Convert to SOL
-      console.log(`Current wallet balance: ${solBalance} SOL`);
+      const lamportsBalance = BigInt(balance.value);
+      const solBalance = Number(lamportsBalance) / this.LAMPORTS_PER_SOL;
 
-      // 2. Calculate position size
-      const positionSize = await this.calculatePositionSize(signal, solBalance);
-      console.log(`Calculated position size: ${positionSize} SOL`);
+      console.log("Wallet balance:", {
+        lamportsBalance: lamportsBalance.toString(),
+        solBalance: solBalance.toFixed(9),
+      });
+
+      // 2. Calculate position size with debug logging
+      const maxPositionLamports =
+        (lamportsBalance * BigInt(this.MAX_POSITION_SIZE_PERCENT * 100)) /
+        BigInt(100);
+      console.log("Max position (1% of balance):", {
+        inLamports: maxPositionLamports.toString(),
+        inSol: Number(maxPositionLamports) / this.LAMPORTS_PER_SOL,
+      });
+
+      const confidenceAdjusted =
+        (maxPositionLamports * BigInt(signal.confidence)) / BigInt(100);
+      console.log("After confidence adjustment:", {
+        confidence: signal.confidence,
+        inLamports: confidenceAdjusted.toString(),
+        inSol: Number(confidenceAdjusted) / this.LAMPORTS_PER_SOL,
+      });
+
+      const feesAdjusted = (confidenceAdjusted * BigInt(995)) / BigInt(1000);
+      console.log("After fees adjustment:", {
+        inLamports: feesAdjusted.toString(),
+        inSol: Number(feesAdjusted) / this.LAMPORTS_PER_SOL,
+      });
+
+      // Safety check - ensure we have enough SOL (including buffer for fees)
+      const minSolForFees = BigInt(10000000); // 0.01 SOL for fees
+      if (feesAdjusted + minSolForFees >= lamportsBalance) {
+        console.error("❌ Position size plus fees exceeds available balance");
+        return false;
+      }
+
+      // Additional safety check - maximum trade size
+      const maxTradeSize = BigInt(lamportsBalance) / BigInt(2); // Never use more than 50% of balance
+      if (feesAdjusted > maxTradeSize) {
+        console.error("❌ Trade size exceeds maximum allowed");
+        return false;
+      }
 
       // 3. Get quote from Jupiter
       console.log(`Getting quote from Jupiter...`);
       const quote = await this.jupiterService.getQuote({
         inputMint: this.WRAPPED_SOL,
         outputMint: signal.tokenAddress,
-        amount: positionSize * 1e9, // Convert to lamports
+        amount: Number(feesAdjusted),
         slippageBps: this.DEFAULT_SLIPPAGE_BPS,
       });
 
@@ -62,13 +101,21 @@ export class TradeExecutionService {
         return false;
       }
 
-      // 4. Execute swap
+      console.log("Quote details:", {
+        inputAmount: quote.inAmount,
+        outputAmount: quote.outAmount,
+        priceImpact: quote.priceImpactPct,
+      });
+
+      // 4. Create trade record
+      const tradeSizeInSol = Number(feesAdjusted) / this.LAMPORTS_PER_SOL;
       const trade = await this.createTrade(
         signal,
-        positionSize,
+        tradeSizeInSol,
         quote.outAmount
       );
 
+      // 5. Execute swap
       console.log(`Executing swap...`);
       const swapResult = await this.jupiterService.executeSwap(
         quote,
@@ -81,7 +128,7 @@ export class TradeExecutionService {
         return false;
       }
 
-      // 5. Update trade status
+      // 6. Update trade status
       await this.updateTradeStatus(trade.id, "EXECUTED", {
         txId: swapResult.txid,
       });
@@ -94,14 +141,23 @@ export class TradeExecutionService {
     }
   }
 
-  private async calculatePositionSize(
-    signal: { confidence: number },
-    walletBalance: number
-  ): Promise<number> {
-    // Simple position sizing: 2% of portfolio * confidence adjustment
-    const maxPosition = walletBalance * this.MAX_POSITION_SIZE_PERCENT;
-    const confidenceAdjusted = maxPosition * (signal.confidence / 100);
-    return confidenceAdjusted;
+  private calculatePositionSizeInLamports(
+    balanceInLamports: bigint,
+    confidence: number
+  ): bigint {
+    // Calculate max position (2% of portfolio)
+    const maxPositionLamports =
+      (balanceInLamports * BigInt(this.MAX_POSITION_SIZE_PERCENT * 100)) /
+      BigInt(100);
+
+    // Apply confidence adjustment
+    const confidenceAdjusted =
+      (maxPositionLamports * BigInt(confidence)) / BigInt(100);
+
+    // Leave room for fees (0.5%)
+    const adjustedForFees = (confidenceAdjusted * BigInt(995)) / BigInt(1000);
+
+    return adjustedForFees;
   }
 
   private async createTrade(
@@ -115,24 +171,23 @@ export class TradeExecutionService {
       signalId: signal.id,
       entryPrice: signal.price || 0,
       positionSize: positionSize,
-      stopLossPrice: signal.price ? signal.price * 0.85 : 0, // 15% stop loss
+      stopLossPrice: signal.price ? signal.price * 0.85 : 0,
       status: "PENDING",
     };
 
-    // Store in database
     this.db
       .prepare(
         `
-      INSERT INTO trades (
-        id,
-        token_address,
-        signal_id,
-        entry_price,
-        position_size,
-        status,
-        entry_time
-      ) VALUES (?, ?, ?, ?, ?, ?, unixepoch())
-    `
+        INSERT INTO trades (
+          id,
+          token_address,
+          signal_id,
+          entry_price,
+          position_size,
+          status,
+          entry_time
+        ) VALUES (?, ?, ?, ?, ?, ?, unixepoch())
+      `
       )
       .run(
         trade.id,
@@ -154,11 +209,11 @@ export class TradeExecutionService {
     this.db
       .prepare(
         `
-      UPDATE trades
-      SET status = ?,
-          tx_id = ?
-      WHERE id = ?
-    `
+        UPDATE trades
+        SET status = ?,
+            tx_id = ?
+        WHERE id = ?
+      `
       )
       .run(status, extra.txId || null, tradeId);
   }

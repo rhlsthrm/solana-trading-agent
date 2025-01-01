@@ -87,6 +87,7 @@ interface SwapResponse {
 export class JupiterService {
   private readonly TOKENS_API = "https://tokens.jup.ag/";
   private readonly QUOTE_API = "https://quote-api.jup.ag/v6";
+  private readonly LAMPORTS_PER_SOL = 1_000_000_000; // 1 SOL = 1 billion lamports
 
   constructor(private config: { minLiquidity: number; minVolume24h: number }) {}
 
@@ -174,19 +175,59 @@ export class JupiterService {
     slippageBps: number;
   }): Promise<QuoteResponse | null> {
     try {
-      console.log("fetching quote for", params.outputMint);
-      const quoteResponse = await this.fetchWithRetry(
-        `${this.QUOTE_API}/quote?inputMint=${params.inputMint}&outputMint=${params.outputMint}&amount=${params.amount}`,
-        {
-          headers: {
-            Accept: "application/json",
-          },
-        }
-      );
+      // REMOVED the lamports conversion since it's now handled in TradeExecutionService
+      const amountToUse = Math.floor(params.amount);
+
+      // Log the amount for debugging
+      console.log("Quote amount:", {
+        amount: amountToUse,
+        inputMint: params.inputMint,
+      });
+
+      // Construct URL with proper encoding
+      const queryParams = new URLSearchParams({
+        inputMint: params.inputMint,
+        outputMint: params.outputMint,
+        amount: amountToUse.toString(),
+        slippageBps: params.slippageBps.toString(),
+      });
+
+      const url = `${this.QUOTE_API}/quote?${queryParams.toString()}`;
+      console.log("Fetching quote from:", url);
+
+      const quoteResponse = await this.fetchWithRetry(url, {
+        headers: {
+          Accept: "application/json",
+        },
+      });
+
+      if (!quoteResponse) {
+        console.log("No quote response received");
+        return null;
+      }
+
+      // Log quote details for debugging
+      console.log("Quote received:", {
+        inputAmount: quoteResponse.inAmount,
+        outputAmount: quoteResponse.outAmount,
+        priceImpact: quoteResponse.priceImpactPct,
+      });
 
       return quoteResponse;
     } catch (error) {
-      console.error("Error getting quote:", error);
+      console.error("Error getting quote:", {
+        error,
+        params,
+        errorMessage: error.message,
+        errorStack: error.stack,
+      });
+
+      // Try to get response body for more details if available
+      if (error.response) {
+        const text = await error.response.text();
+        console.error("Response body:", text);
+      }
+
       return null;
     }
   }
