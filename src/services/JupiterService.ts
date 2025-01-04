@@ -36,12 +36,27 @@ export class JupiterService {
           },
         });
 
+        const responseText = await response.text();
+
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+          console.error("API Error:", {
+            status: response.status,
+            url: url,
+            response: responseText,
+          });
+          throw new Error(
+            `HTTP error! status: ${response.status}, response: ${responseText}`
+          );
         }
-        return await response.json();
+
+        // Only try to parse as JSON if we have content
+        if (responseText) {
+          return JSON.parse(responseText);
+        }
+        return null;
       } catch (error) {
         lastError = error;
+        console.error(`Attempt ${i + 1} failed:`, error);
         if (i < retries - 1) {
           await new Promise((resolve) =>
             setTimeout(resolve, Math.pow(2, i) * 1000)
@@ -51,39 +66,6 @@ export class JupiterService {
     }
 
     throw lastError;
-  }
-
-  public async getTokenInfo(tokenAddress: string): Promise<TokenInfo | null> {
-    try {
-      // Get basic token info
-      const tokenResponse = await this.fetchWithRetry(
-        `${this.TOKENS_API}token/${tokenAddress}`
-      );
-      if (!tokenResponse) {
-        return null;
-      }
-
-      // Get price and liquidity info from V2 API
-      const priceResponse = await this.fetchWithRetry(
-        `https://api.jup.ag/price/v2?ids=${tokenAddress}&showExtraInfo=true`
-      );
-
-      const priceData = priceResponse?.data?.[tokenAddress];
-      const extraInfo = priceData?.extraInfo;
-
-      return {
-        address: tokenResponse.address,
-        symbol: tokenResponse.symbol,
-        name: tokenResponse.name,
-        volume24h: tokenResponse.daily_volume,
-        liquidity: extraInfo?.depth?.buyPriceImpactRatio?.depth?.[100] || 0, // Use 100 SOL depth as liquidity indicator
-        price: parseFloat(priceData?.price || "0"),
-        isValid: true,
-      };
-    } catch (error) {
-      console.error(`Error fetching info for token ${tokenAddress}:`, error);
-      return null;
-    }
   }
 
   public async getQuote(params: {
@@ -157,6 +139,12 @@ export class JupiterService {
     try {
       const userPublicKey = walletClient.getAddress();
 
+      console.log("Executing swap with params:", {
+        inputAmount: quote.inAmount,
+        outputAmount: quote.outAmount,
+        userPublicKey: userPublicKey,
+      });
+
       // Get swap transaction
       const swapResponse = await this.fetchWithRetry(`${this.QUOTE_API}/swap`, {
         method: "POST",
@@ -164,18 +152,37 @@ export class JupiterService {
           quoteResponse: quote,
           userPublicKey: userPublicKey.toString(),
           wrapUnwrapSOL: true,
-          useSharedAccounts: true,
+          useSharedAccounts: false, // Disabled shared accounts as per previous fix
           dynamicComputeUnitLimit: true,
-          asLegacyTransaction: true, // Force legacy transaction format
+          computeUnitPriceMicroLamports: "auto",
+          asLegacyTransaction: true,
         }),
       });
 
       if (!swapResponse || !swapResponse.swapTransaction) {
-        console.error("No swap transaction in response:", swapResponse);
+        console.error("Invalid swap response:", swapResponse);
+        if (swapResponse?.error) {
+          console.error("Swap API error:", swapResponse.error);
+        }
         return null;
       }
 
-      // Decode base64 transaction data
+      // Check simulation results from swap response
+      if (swapResponse.simulationError) {
+        console.error("Simulation failed:", {
+          error: swapResponse.simulationError,
+          details: swapResponse.simulationResponse,
+        });
+        return null;
+      }
+
+      // Log the compute unit settings
+      console.log("Compute units:", {
+        limit: swapResponse.computeUnitLimit,
+        price: swapResponse.prioritizationFeeLamports,
+      });
+
+      // Proceed with transaction if simulation passed
       const transactionData = Buffer.from(
         swapResponse.swapTransaction,
         "base64"

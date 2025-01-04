@@ -13,6 +13,7 @@ import { degen } from "./characters/degen";
 import { createJupiterService } from "./services/JupiterService";
 import { createTradeExecutionService } from "./services/TradeExecutionService";
 import { createProficyService } from "./services/ProficyService";
+import { createSentimentAnalysisService } from "./services/SentimentAnalysisService";
 
 async function initializeDatabase(): Promise<Database.Database> {
   // Initialize SQLite database with schema
@@ -212,6 +213,8 @@ async function main() {
       sessionStr: process.env.TELEGRAM_SESSION,
     });
 
+    const sentimentService = createSentimentAnalysisService(runtime);
+
     await proficyService.init();
 
     // Initialize Telegram monitor
@@ -224,6 +227,7 @@ async function main() {
       jupiterService: jupiterService, // Pass your Jupiter service instance
       tradeExecutionService: tradeExecutionService,
       proficyService: proficyService,
+      sentimentService: sentimentService,
     });
 
     console.log("Starting Telegram monitor...");

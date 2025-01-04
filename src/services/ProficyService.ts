@@ -73,11 +73,7 @@ export class ProficyService {
           }
         );
 
-        if (
-          messages &&
-          messages.length > 0 &&
-          messages[0].text.includes("Price")
-        ) {
+        if (messages && messages.length > 0) {
           return messages[0];
         }
 
@@ -95,48 +91,50 @@ export class ProficyService {
 
   private parseTokenInfo(response: string): TokenInfo | null {
     try {
-      // Extract token address - look for the longest string matching our regex
-      console.log("response", response);
-      const addresses = response.match(this.TOKEN_ADDRESS_REGEX) || [];
-      const tokenAddress = addresses.reduce(
-        (a, b) => (a.length > b.length ? a : b),
-        ""
-      );
+      // Updated regex to find token addresses whether they're in backticks or not
+      const addresses =
+        response.match(/(?:`|^|\s)([A-Za-z0-9]{32,44})(?:`|$|\s)/) || [];
+      const tokenAddress = addresses[1] || "";
 
       if (!tokenAddress) {
         console.log("No token address found in response");
         return null;
       }
 
-      // Extract token symbol and name
-      const symbolMatch = response.match(/\*\*([\w]+)\s*\(([\w]+)\)\*\*/);
-      const symbol = symbolMatch?.[1] || "";
-      const name = symbolMatch?.[2] || symbol;
+      // Extract token name and symbol from the first line
+      // Format: **Swarms (swarms)**
+      const nameSymbolMatch = response.match(
+        /\*\*([\w\s/]+)\s*\(([\w]+)\)\*\*/
+      );
+      const name = nameSymbolMatch?.[1]?.trim() || "";
+      const symbol = nameSymbolMatch?.[2] || "";
 
-      // Extract price
-      const priceMatch = response.match(/\$(\d+\.?\d*)/);
+      // Extract price - Format: SOL $0.2861
+      const priceMatch = response.match(/SOL\s*\$(\d+\.?\d*)/);
       const price = priceMatch ? parseFloat(priceMatch[1]) : 0;
 
-      // Extract market cap
-      const mcMatch = response.match(/MC:\s*(\d+\.?\d*[KMB]?)/);
+      // Extract market cap - Format: **MC:** 286M
+      const mcMatch = response.match(/\*\*MC:\*\*\s*(\d+\.?\d*[KMB]?)/);
       const marketCap = mcMatch
         ? this.parseNumberWithSuffix(mcMatch[1])
         : undefined;
 
-      // Extract liquidity
-      const liqMatch = response.match(/Liq:\s*(\d+\.?\d*[KMB]?)/);
+      // Extract liquidity - Format: **Liq:** 5.67M
+      const liqMatch = response.match(/\*\*Liq:\*\*\s*(\d+\.?\d*[KMB]?)/);
       const liquidity = liqMatch
         ? this.parseNumberWithSuffix(liqMatch[1])
         : undefined;
 
-      // Extract volume
+      // Extract volume - Updated regex for total volume
       const volMatch = response.match(/1D:.*?\$(\d+\.?\d*[KMB]?)/);
       const volume24h = volMatch
         ? this.parseNumberWithSuffix(volMatch[1])
         : undefined;
 
-      // Extract holders
-      const holdersMatch = response.match(/Holders:\s*(\d+\.?\d*[KMB]?)/);
+      // Extract holders - Format: **Holders:** 19K
+      const holdersMatch = response.match(
+        /\*\*Holders:\*\*\s*(\d+\.?\d*[KMB]?)/
+      );
       const holders = holdersMatch
         ? this.parseNumberWithSuffix(holdersMatch[1])
         : undefined;

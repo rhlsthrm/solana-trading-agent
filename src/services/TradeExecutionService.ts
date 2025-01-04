@@ -3,7 +3,7 @@ import { WalletClientBase } from "@goat-sdk/core";
 import { JupiterService } from "./JupiterService";
 import { Database } from "better-sqlite3";
 import { v4 as uuidv4 } from "uuid";
-import { Trade, TradeSignal } from "../types/trade";
+import { SolanaWalletClient, Trade, TradeSignal } from "../types/trade";
 
 export class TradeExecutionService {
   private readonly WRAPPED_SOL = "So11111111111111111111111111111111111111112";
@@ -14,7 +14,7 @@ export class TradeExecutionService {
 
   constructor(
     private jupiterService: JupiterService,
-    private walletClient: WalletClientBase,
+    private walletClient: SolanaWalletClient,
     private db: Database
   ) {}
 
@@ -102,7 +102,6 @@ export class TradeExecutionService {
       console.log(`Executing swap...`);
       const swapResult = await this.jupiterService.executeSwap(
         quote,
-        // @ts-ignore
         this.walletClient
       );
 
@@ -123,25 +122,6 @@ export class TradeExecutionService {
       console.error("Error executing trade:", error);
       return false;
     }
-  }
-
-  private calculatePositionSizeInLamports(
-    balanceInLamports: bigint,
-    confidence: number
-  ): bigint {
-    // Calculate max position (2% of portfolio)
-    const maxPositionLamports =
-      (balanceInLamports * BigInt(this.MAX_POSITION_SIZE_PERCENT * 100)) /
-      BigInt(100);
-
-    // Apply confidence adjustment
-    const confidenceAdjusted =
-      (maxPositionLamports * BigInt(confidence)) / BigInt(100);
-
-    // Leave room for fees (0.5%)
-    const adjustedForFees = (confidenceAdjusted * BigInt(995)) / BigInt(1000);
-
-    return adjustedForFees;
   }
 
   private async createTrade(
