@@ -68,6 +68,39 @@ export class JupiterService {
     throw lastError;
   }
 
+  public async getTokenInfo(tokenAddress: string): Promise<TokenInfo | null> {
+    try {
+      // Get basic token info
+      const tokenResponse = await this.fetchWithRetry(
+        `${this.TOKENS_API}token/${tokenAddress}`
+      );
+      if (!tokenResponse) {
+        return null;
+      }
+
+      // Get price and liquidity info from V2 API
+      const priceResponse = await this.fetchWithRetry(
+        `https://api.jup.ag/price/v2?ids=${tokenAddress}&showExtraInfo=true`
+      );
+
+      const priceData = priceResponse?.data?.[tokenAddress];
+      const extraInfo = priceData?.extraInfo;
+
+      return {
+        address: tokenResponse.address,
+        symbol: tokenResponse.symbol,
+        name: tokenResponse.name,
+        volume24h: tokenResponse.daily_volume,
+        liquidity: extraInfo?.depth?.buyPriceImpactRatio?.depth?.[100] || 0, // Use 100 SOL depth as liquidity indicator
+        price: parseFloat(priceData?.price || "0"),
+        isValid: true,
+      };
+    } catch (error) {
+      console.error(`Error fetching info for token ${tokenAddress}:`, error);
+      return null;
+    }
+  }
+
   public async getQuote(params: {
     inputMint: string;
     outputMint: string;

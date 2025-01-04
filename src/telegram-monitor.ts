@@ -14,6 +14,7 @@ import { createJupiterService } from "./services/JupiterService";
 import { createTradeExecutionService } from "./services/TradeExecutionService";
 import { createProficyService } from "./services/ProficyService";
 import { createSentimentAnalysisService } from "./services/SentimentAnalysisService";
+import { createPositionManager } from "./services/PositionManager";
 
 async function initializeDatabase(): Promise<Database.Database> {
   // Initialize SQLite database with schema
@@ -201,10 +202,17 @@ async function main() {
       minVolume24h: Number(process.env.MIN_VOLUME_24H) || 10000, // $10k default
     });
 
+    const positionManager = createPositionManager(
+      sqliteDb,
+      jupiterService,
+      walletClient
+    );
+
     const tradeExecutionService = createTradeExecutionService(
       jupiterService,
       walletClient,
-      sqliteDb
+      sqliteDb,
+      positionManager
     );
 
     const proficyService = createProficyService({
@@ -232,15 +240,8 @@ async function main() {
 
     console.log("Starting Telegram monitor...");
 
-    // console.log("Runtime config:", {
-    //   modelProvider: runtime.modelProvider,
-    //   token: runtime.token ? "exists" : "missing",
-    //   character: runtime.character.name,
-    // });
-
     await telegramMonitor.start();
 
-    // Keep the process running
     await new Promise(() => {});
   } catch (error) {
     console.error("Fatal error:", error);

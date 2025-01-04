@@ -1,81 +1,66 @@
 // src/services/trade-execution.ts
-import { WalletClientBase } from "@goat-sdk/core";
 import { JupiterService } from "./JupiterService";
 import { Database } from "better-sqlite3";
 import { v4 as uuidv4 } from "uuid";
 import { SolanaWalletClient, Trade, TradeSignal } from "../types/trade";
+import { PositionManager } from "./PositionManager";
 
 export class TradeExecutionService {
   private readonly WRAPPED_SOL = "So11111111111111111111111111111111111111112";
-  private readonly MAX_RETRIES = 3;
   private readonly MAX_POSITION_SIZE_PERCENT = 0.02; // 2% of portfolio per trade
   private readonly DEFAULT_SLIPPAGE_BPS = 500; // 5% slippage tolerance
   private readonly LAMPORTS_PER_SOL = 1_000_000_000;
+  private readonly MIN_CONFIDENCE_SCORE = 65;
 
   constructor(
     private jupiterService: JupiterService,
     private walletClient: SolanaWalletClient,
-    private db: Database
+    private db: Database,
+    private positionManager: PositionManager
   ) {}
 
   async executeTrade(signal: TradeSignal): Promise<boolean> {
     try {
+      // Check minimum confidence score
+      if (signal.confidence < this.MIN_CONFIDENCE_SCORE) {
+        console.log(
+          `❌ Signal confidence ${signal.confidence} below minimum threshold ${this.MIN_CONFIDENCE_SCORE}`
+        );
+        return false;
+      }
+
+      // Check for existing position
+      const existingPosition = await this.positionManager.getPositionByToken(
+        signal.tokenAddress
+      );
+      if (existingPosition) {
+        console.log(`⚠️ Already have position in ${signal.tokenAddress}`);
+        return false;
+      }
+
       console.log(`🚀 Executing trade for token ${signal.tokenAddress}`);
 
-      // 1. Get wallet balance in lamports
+      // Get wallet balance
       const walletAddress = this.walletClient.getAddress();
       const balance = await this.walletClient.balanceOf(walletAddress);
       const lamportsBalance = BigInt(balance.value);
       const solBalance = Number(lamportsBalance) / this.LAMPORTS_PER_SOL;
 
-      console.log("Wallet balance:", {
-        lamportsBalance: lamportsBalance.toString(),
-        solBalance: solBalance.toFixed(9),
-      });
+      // Calculate position size based on confidence
+      const positionSize = this.calculatePositionSize(
+        lamportsBalance,
+        signal.confidence
+      );
 
-      // 2. Calculate position size with debug logging
-      const maxPositionLamports =
-        (lamportsBalance * BigInt(this.MAX_POSITION_SIZE_PERCENT * 100)) /
-        BigInt(100);
-      console.log("Max position (1% of balance):", {
-        inLamports: maxPositionLamports.toString(),
-        inSol: Number(maxPositionLamports) / this.LAMPORTS_PER_SOL,
-      });
-
-      const confidenceAdjusted =
-        (maxPositionLamports * BigInt(signal.confidence)) / BigInt(100);
-      console.log("After confidence adjustment:", {
-        confidence: signal.confidence,
-        inLamports: confidenceAdjusted.toString(),
-        inSol: Number(confidenceAdjusted) / this.LAMPORTS_PER_SOL,
-      });
-
-      const feesAdjusted = (confidenceAdjusted * BigInt(995)) / BigInt(1000);
-      console.log("After fees adjustment:", {
-        inLamports: feesAdjusted.toString(),
-        inSol: Number(feesAdjusted) / this.LAMPORTS_PER_SOL,
-      });
-
-      // Safety check - ensure we have enough SOL (including buffer for fees)
-      const minSolForFees = BigInt(10000000); // 0.01 SOL for fees
-      if (feesAdjusted + minSolForFees >= lamportsBalance) {
-        console.error("❌ Position size plus fees exceeds available balance");
+      if (!this.validatePositionSize(positionSize, lamportsBalance)) {
         return false;
       }
 
-      // Additional safety check - maximum trade size
-      const maxTradeSize = BigInt(lamportsBalance) / BigInt(2); // Never use more than 50% of balance
-      if (feesAdjusted > maxTradeSize) {
-        console.error("❌ Trade size exceeds maximum allowed");
-        return false;
-      }
-
-      // 3. Get quote from Jupiter
-      console.log(`Getting quote from Jupiter...`);
+      // Get quote from Jupiter
       const quote = await this.jupiterService.getQuote({
         inputMint: this.WRAPPED_SOL,
         outputMint: signal.tokenAddress,
-        amount: Number(feesAdjusted),
+        amount: Number(positionSize),
         slippageBps: this.DEFAULT_SLIPPAGE_BPS,
       });
 
@@ -84,21 +69,15 @@ export class TradeExecutionService {
         return false;
       }
 
-      console.log("Quote details:", {
-        inputAmount: quote.inAmount,
-        outputAmount: quote.outAmount,
-        priceImpact: quote.priceImpactPct,
-      });
-
-      // 4. Create trade record
-      const tradeSizeInSol = Number(feesAdjusted) / this.LAMPORTS_PER_SOL;
+      // Create trade record
+      const tradeSizeInSol = Number(positionSize) / this.LAMPORTS_PER_SOL;
       const trade = await this.createTrade(
         signal,
         tradeSizeInSol,
         quote.outAmount
       );
 
-      // 5. Execute swap
+      // Execute swap
       console.log(`Executing swap...`);
       const swapResult = await this.jupiterService.executeSwap(
         quote,
@@ -111,7 +90,22 @@ export class TradeExecutionService {
         return false;
       }
 
-      // 6. Update trade status
+      // Create position record
+      const tokenInfo = await this.jupiterService.getTokenInfo(
+        signal.tokenAddress
+      );
+      if (!tokenInfo) {
+        console.error("❌ Failed to get token info");
+        return false;
+      }
+
+      await this.positionManager.createPosition({
+        tokenAddress: signal.tokenAddress,
+        amount: quote.outAmount,
+        entryPrice: tokenInfo.price || 0,
+      });
+
+      // Update trade status
       await this.updateTradeStatus(trade.id, "EXECUTED", {
         txId: swapResult.txid,
       });
@@ -122,6 +116,44 @@ export class TradeExecutionService {
       console.error("Error executing trade:", error);
       return false;
     }
+  }
+
+  private calculatePositionSize(
+    balanceLamports: bigint,
+    confidence: number
+  ): bigint {
+    // Base position size (2% of portfolio)
+    const baseSize =
+      (balanceLamports * BigInt(this.MAX_POSITION_SIZE_PERCENT * 100)) /
+      BigInt(100);
+
+    // Adjust based on confidence (50-100% of base size)
+    const confidenceAdjustment = Math.max(50, confidence) / 100;
+    const adjustedSize =
+      (baseSize * BigInt(Math.floor(confidenceAdjustment * 100))) / BigInt(100);
+
+    // Reserve for fees (0.5%)
+    return (adjustedSize * BigInt(995)) / BigInt(1000);
+  }
+
+  private validatePositionSize(
+    positionSize: bigint,
+    balanceLamports: bigint
+  ): boolean {
+    const minSolForFees = BigInt(10000000); // 0.01 SOL for fees
+
+    if (positionSize + minSolForFees >= balanceLamports) {
+      console.error("❌ Position size plus fees exceeds available balance");
+      return false;
+    }
+
+    const maxTradeSize = balanceLamports / BigInt(2); // Max 50% of balance
+    if (positionSize > maxTradeSize) {
+      console.error("❌ Trade size exceeds maximum allowed");
+      return false;
+    }
+
+    return true;
   }
 
   private async createTrade(
@@ -185,8 +217,14 @@ export class TradeExecutionService {
 
 export const createTradeExecutionService = (
   jupiterService: JupiterService,
-  walletClient: any,
-  db: Database
+  walletClient: SolanaWalletClient,
+  db: Database,
+  positionManager: PositionManager
 ) => {
-  return new TradeExecutionService(jupiterService, walletClient, db);
+  return new TradeExecutionService(
+    jupiterService,
+    walletClient,
+    db,
+    positionManager
+  );
 };
