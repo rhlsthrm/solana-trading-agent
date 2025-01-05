@@ -16,6 +16,7 @@
     "@goat-sdk/wallet-solana": "^0.1.9",
     "@solana/web3.js": "^1.98.0",
     "better-sqlite3": "^9.6.0",
+    "bignumber.js": "^9.1.2",
     "bs58": "^6.0.0",
     "dotenv": "^16.4.7",
     "input": "^1.0.1",

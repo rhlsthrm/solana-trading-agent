@@ -197,10 +197,7 @@ async function main() {
     // Create runtime
     const runtime = await createRuntime(dbAdapter);
 
-    const jupiterService = createJupiterService({
-      minLiquidity: Number(process.env.MIN_LIQUIDITY) || 50000, // $50k default
-      minVolume24h: Number(process.env.MIN_VOLUME_24H) || 10000, // $10k default
-    });
+    const jupiterService = createJupiterService();
 
     const positionManager = createPositionManager(
       sqliteDb,
@@ -212,6 +209,7 @@ async function main() {
       jupiterService,
       walletClient,
       sqliteDb,
+      runtime,
       positionManager
     );
 
@@ -219,6 +217,7 @@ async function main() {
       apiId: Number(process.env.TELEGRAM_API_ID),
       apiHash: process.env.TELEGRAM_API_HASH,
       sessionStr: process.env.TELEGRAM_SESSION,
+      runtime,
     });
 
     const sentimentService = createSentimentAnalysisService(runtime);
