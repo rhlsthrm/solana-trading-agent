@@ -1,5 +1,5 @@
 import { Transaction, VersionedTransaction } from "@solana/web3.js";
-import { SolanaWalletClient } from "../types/trade";
+import { SolanaWalletClient, TokenInfo } from "../types/trade";
 
 export class JupiterService {
   private readonly QUOTE_API = "https://quote-api.jup.ag/v6";
@@ -138,6 +138,32 @@ export class JupiterService {
         message: error.message,
         stack: error.stack,
       });
+      return null;
+    }
+  }
+
+  public async getTokenInfo(addressOrPool: string): Promise<TokenInfo | null> {
+    try {
+      const response = await fetch(`${this.TOKENS_API}/token/${addressOrPool}`);
+      if (!response.ok) {
+        console.error(`Failed to get token info: ${response.statusText}`);
+        return null;
+      }
+
+      const data = await response.json();
+      return {
+        address: data.address,
+        symbol: data.symbol,
+        name: data.name,
+        price: data.price,
+        liquidity: data.liquidity,
+        volume24h: data.volume24h,
+        marketCap: data.marketCap,
+        holders: data.holders,
+        isValid: true,
+      };
+    } catch (error) {
+      console.error("Error getting token info:", error);
       return null;
     }
   }

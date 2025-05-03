@@ -6,7 +6,8 @@
     "build": "tsc",
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
-    "telegram:monitor": "tsx src/telegram-monitor.ts"
+    "telegram:monitor": "tsx src/telegram-monitor.ts",
+    "position:monitor": "tsx src/position-monitor.ts"
   },
   "dependencies": {
     "@ai16z/adapter-sqlite": "^0.1.6",

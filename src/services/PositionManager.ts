@@ -195,15 +195,103 @@ export class PositionManager {
   }
 
   async closePosition(id: string): Promise<boolean> {
-    const position = await this.getPosition(id);
-    if (!position) return false;
+    try {
+      // Start a database transaction
+      this.db.exec("BEGIN TRANSACTION");
 
-    await this.updatePosition(id, {
-      status: "CLOSED",
-      lastUpdated: Date.now(),
-    });
+      try {
+        // Get the position
+        const position = await this.getPosition(id);
+        if (!position) {
+          this.db.exec("ROLLBACK");
+          return false;
+        }
 
-    return true;
+        // Get current token info
+        const tokenInfo = await this.jupiterService.getTokenInfo(position.tokenAddress);
+        if (!tokenInfo?.price) {
+          console.error(`Failed to get token info for ${position.tokenAddress}`);
+          this.db.exec("ROLLBACK");
+          return false;
+        }
+
+        // Get quote for selling tokens back to SOL
+        const WRAPPED_SOL = "So11111111111111111111111111111111111111112";
+        const quote = await this.jupiterService.getQuote({
+          inputMint: position.tokenAddress,
+          outputMint: WRAPPED_SOL,
+          amount: position.amount,
+        });
+
+        if (!quote) {
+          console.error(`Failed to get quote for selling ${position.tokenAddress}`);
+          this.db.exec("ROLLBACK");
+          return false;
+        }
+
+        // Execute swap (sell tokens back to SOL)
+        const result = await this.jupiterService.executeSwap(quote, this.walletClient);
+        if (!result) {
+          console.error(`Failed to execute swap for ${position.tokenAddress}`);
+          this.db.exec("ROLLBACK");
+          return false;
+        }
+
+        // Calculate final profit/loss
+        const finalValue = Number(result.outputAmount);
+        const entryValue = position.amount * position.entryPrice;
+        const profitLoss = finalValue - entryValue;
+
+        // Record the transaction in the trades table
+        this.db
+          .prepare(
+            `
+            INSERT INTO trades (
+              id,
+              token_address,
+              position_size,
+              entry_price,
+              exit_price,
+              exit_time,
+              status,
+              profit_loss,
+              tx_id
+            ) VALUES (?, ?, ?, ?, ?, unixepoch(), ?, ?, ?)
+          `
+          )
+          .run(
+            crypto.randomUUID(),
+            position.tokenAddress,
+            position.amount,
+            position.entryPrice,
+            tokenInfo.price,
+            "CLOSED",
+            profitLoss,
+            result.txid
+          );
+
+        // Update position status
+        await this.updatePosition(id, {
+          status: "CLOSED",
+          lastUpdated: Date.now(),
+          profitLoss: profitLoss,
+          currentPrice: tokenInfo.price,
+        });
+
+        // Commit the transaction
+        this.db.exec("COMMIT");
+        console.log(`✅ Position ${id} closed successfully. Final P&L: ${profitLoss}`);
+        return true;
+      } catch (error) {
+        // Rollback on error
+        this.db.exec("ROLLBACK");
+        console.error(`Error closing position ${id}:`, error);
+        return false;
+      }
+    } catch (error) {
+      console.error(`Error in closePosition for ${id}:`, error);
+      return false;
+    }
   }
 
   async updatePricesAndProfitLoss(): Promise<void> {
@@ -232,12 +320,47 @@ export class PositionManager {
 
         // Check for stop loss (example: -15%)
         if (profitLossPercentage < -15) {
-          console.log(`⚠️ Stop loss triggered for position ${position.id}`);
-          // Implement stop loss logic here
+          console.log(`⚠️ Stop loss triggered for position ${position.id} (${profitLossPercentage.toFixed(2)}%)`);
+          
+          // Execute stop loss by closing the position
+          const success = await this.closePosition(position.id);
+          if (success) {
+            console.log(`✅ Stop loss executed for position ${position.id} at ${profitLossPercentage.toFixed(2)}%`);
+          } else {
+            console.error(`❌ Failed to execute stop loss for position ${position.id}`);
+          }
+        }
+
+        // Check for take profit (example: +30%)
+        if (profitLossPercentage > 30) {
+          console.log(`🎯 Take profit triggered for position ${position.id} (${profitLossPercentage.toFixed(2)}%)`);
+          
+          // Execute take profit by closing the position
+          const success = await this.closePosition(position.id);
+          if (success) {
+            console.log(`✅ Take profit executed for position ${position.id} at ${profitLossPercentage.toFixed(2)}%`);
+          } else {
+            console.error(`❌ Failed to execute take profit for position ${position.id}`);
+          }
         }
       } catch (error) {
         console.error(`Error updating position ${position.id}:`, error);
       }
+    }
+  }
+
+  async closePositionByToken(tokenAddress: string): Promise<boolean> {
+    try {
+      const position = await this.getPositionByToken(tokenAddress);
+      if (!position) {
+        console.log(`No active position found for token ${tokenAddress}`);
+        return false;
+      }
+      
+      return await this.closePosition(position.id);
+    } catch (error) {
+      console.error(`Error closing position for token ${tokenAddress}:`, error);
+      return false;
     }
   }
 

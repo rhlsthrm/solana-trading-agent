@@ -6,3 +6,4 @@ coverage
 trading.db
 
 dist
+**/.claude/settings.local.json

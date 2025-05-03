@@ -1,15 +1,13 @@
 // telegram-monitor.ts:
 import "dotenv/config";
 import { AgentRuntime } from "@ai16z/eliza";
-import { solana } from "@goat-sdk/wallet-solana";
 import { createTelegramMonitorService } from "./services/TelegramMonitorService";
-import { Connection } from "@solana/web3.js";
 import { ModelProviderName } from "@ai16z/eliza";
 import { jupiter } from "@goat-sdk/plugin-jupiter";
 import Database from "better-sqlite3";
 import { SqliteDatabaseAdapter } from "@ai16z/adapter-sqlite";
-import { createKeypairFromSecret } from "./utils/solana";
 import { degen } from "./characters/degen";
+import { initializeWalletWithConnection } from "./utils/wallet";
 import { createJupiterService } from "./services/JupiterService";
 import { createTradeExecutionService } from "./services/TradeExecutionService";
 import { createProficyService } from "./services/ProficyService";
@@ -134,36 +132,6 @@ async function initializeDatabase(): Promise<Database.Database> {
   return sqliteDb;
 }
 
-async function initializeWallet() {
-  // Create Solana wallet client
-  const privateKey = process.env.SOLANA_PRIVATE_KEY;
-  if (!privateKey) {
-    throw new Error("SOLANA_PRIVATE_KEY is not set or invalid in .env");
-  }
-
-  let keypair;
-  try {
-    keypair = createKeypairFromSecret(privateKey);
-    console.log(`Wallet public key: ${keypair.publicKey.toString()}`);
-  } catch (err) {
-    throw new Error(`Failed to parse the private key: ${err}`);
-  }
-
-  const connection = new Connection(
-    process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com",
-    "confirmed"
-  );
-
-  // Create wallet client
-  return {
-    walletClient: solana({
-      keypair,
-      connection,
-    }),
-    connection,
-  };
-}
-
 async function createRuntime(dbAdapter: SqliteDatabaseAdapter) {
   // Create runtime
   return new AgentRuntime({
@@ -192,7 +160,7 @@ async function main() {
     const dbAdapter = new SqliteDatabaseAdapter(sqliteDb);
 
     // Initialize wallet
-    const { walletClient } = await initializeWallet();
+    const { walletClient, connection } = await initializeWalletWithConnection();
 
     // Create runtime
     const runtime = await createRuntime(dbAdapter);
