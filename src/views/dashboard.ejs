@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Solana Trading Agent Dashboard</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <meta http-equiv="refresh" content="30">
+  <script>
+    // Countdown timer for auto-refresh
+    window.onload = function() {
+      let seconds = 30;
+      const countdownElement = document.getElementById('countdown');
+      
+      function updateCountdown() {
+        countdownElement.textContent = seconds;
+        if (seconds > 0) {
+          seconds -= 1;
+          setTimeout(updateCountdown, 1000);
+        }
+      }
+      
+      updateCountdown();
+    }
+  </script>
+</head>
+<body>
+  <div class="loader"></div>
+  
+  <header class="header">
+    <div class="container header-content">
+      <h1>Solana Trading Agent Dashboard</h1>
+      <div class="refresh-info">
+        Last updated: <%= new Date().toLocaleString() %>
+      </div>
+    </div>
+  </header>
+
+  <div class="container">
+    <!-- Portfolio Summary Card -->
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">Portfolio Summary</h2>
+      </div>
+      
+      <div class="summary-grid">
+        <div class="summary-item">
+          <div class="summary-label">SOL Balance</div>
+          <div class="summary-value">
+            <% if (solBalance > 0) { %>
+              <%= solBalance.toFixed(4) %> SOL
+              <span class="token-address">≈$<%= formatCurrency(solValueUsd) %></span>
+            <% } else { %>
+              <span class="neutral">Not available</span>
+            <% } %>
+          </div>
+        </div>
+        
+        <div class="summary-item">
+          <div class="summary-label">Positions Value</div>
+          <div class="summary-value">$<%= formatCurrency(metrics.totalValue) %></div>
+        </div>
+        
+        <div class="summary-item">
+          <div class="summary-label">Total Value</div>
+          <div class="summary-value">$<%= formatCurrency(totalValueWithSol) %></div>
+        </div>
+        
+        <div class="summary-item">
+          <div class="summary-label">Profit/Loss</div>
+          <div class="summary-value <%= metrics.profitLoss >= 0 ? 'positive' : 'negative' %>">
+            $<%= formatCurrency(metrics.profitLoss) %>
+            (<%= metrics.profitLossPercentage >= 0 ? '+' : '' %><%= metrics.profitLossPercentage.toFixed(2) %>%)
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Active Positions Card -->
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">Active Positions (<%= positions.length %>)</h2>
+      </div>
+      
+      <% if (positions.length > 0) { %>
+        <table>
+          <thead>
+            <tr>
+              <th>Token</th>
+              <th>Amount</th>
+              <th>Entry Price</th>
+              <th>Current Price</th>
+              <th>Value</th>
+              <th>P&L</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% positions.forEach(position => { %>
+              <% 
+                // Normalize the token amount for display (divide by 10^6)
+                const normalizedAmount = normalizeTokenAmount(position.amount);
+                
+                // Calculate values using normalized amount for display
+                const entryValue = normalizedAmount * position.entryPrice;
+                const currentValue = position.currentPrice ? normalizedAmount * position.currentPrice : 0;
+                
+                // Get profit/loss from the database but normalize it for display
+                const profitLoss = normalizeTokenAmount(position.profitLoss || 0);
+                
+                // Percentage stays the same regardless of normalization
+                const profitLossPercentage = entryValue > 0 ? (profitLoss / entryValue) * 100 : 0;
+                
+                let statusClass = 'neutral';
+                if (profitLossPercentage > 20) statusClass = 'positive';
+                else if (profitLossPercentage > 0) statusClass = 'positive';
+                else if (profitLossPercentage < -10) statusClass = 'negative';
+                else if (profitLossPercentage < 0) statusClass = 'negative';
+                
+                const tokenInfo = tokenMap[position.tokenAddress] || { symbol: '???' };
+              %>
+              <tr>
+                <td>
+                  <div class="token-cell">
+                    <div>
+                      <div class="token-symbol"><%= tokenInfo.symbol %></div>
+                      <div class="token-address"><%= truncateAddress(position.tokenAddress) %></div>
+                    </div>
+                  </div>
+                </td>
+                <td class="price-cell"><%= formatTokenAmount(normalizedAmount) %></td>
+                <td class="price-cell">$<%= formatCurrency(position.entryPrice) %></td>
+                <td class="price-cell">$<%= formatCurrency(position.currentPrice) %></td>
+                <td class="price-cell">$<%= formatCurrency(currentValue) %></td>
+                <td class="price-cell <%= statusClass %>">
+                  $<%= formatCurrency(profitLoss) %>
+                  (<%= profitLossPercentage >= 0 ? '+' : '' %><%= profitLossPercentage.toFixed(2) %>%)
+                </td>
+                <td>
+                  <% if (profitLossPercentage > 25 && profitLossPercentage < 30) { %>
+                    <div class="warning">Approaching take-profit</div>
+                  <% } else if (profitLossPercentage < -10 && profitLossPercentage > -15) { %>
+                    <div class="warning">Approaching stop-loss</div>
+                  <% } else { %>
+                    <div class="<%= statusClass %>">
+                      <%= profitLossPercentage >= 0 ? 'Profit' : 'Loss' %>
+                    </div>
+                  <% } %>
+                </td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      <% } else { %>
+        <div style="padding: 2rem; text-align: center; color: #6b7280;">
+          No active positions found.
+        </div>
+      <% } %>
+    </div>
+    
+    <!-- Recent Trades Card -->
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">Recent Trades</h2>
+      </div>
+      
+      <% if (recentTrades.length > 0) { %>
+        <table>
+          <thead>
+            <tr>
+              <th>Token</th>
+              <th>Entry Price</th>
+              <th>Exit Price</th>
+              <th>Size</th>
+              <th>P&L</th>
+              <th>Date</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% recentTrades.forEach(trade => { %>
+              <% 
+                // Normalize the trade amount for display
+                const normalizedTradeAmount = normalizeTokenAmount(trade.position_size);
+                
+                // Normalize profit/loss for display
+                const profitLoss = normalizeTokenAmount(trade.profit_loss || 0);
+                
+                // Calculate values using normalized amount
+                const entryValue = normalizedTradeAmount * trade.entry_price;
+                const profitLossPercentage = entryValue > 0 ? (profitLoss / entryValue) * 100 : 0;
+                const statusClass = profitLossPercentage >= 0 ? 'positive' : 'negative';
+                
+                const tokenInfo = tokenMap[trade.token_address] || { symbol: '???' };
+                const exitDate = new Date(trade.exit_time * 1000);
+                const dateString = exitDate.toLocaleDateString() + ' ' + 
+                                  exitDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+              %>
+              <tr>
+                <td>
+                  <div class="token-cell">
+                    <div>
+                      <div class="token-symbol"><%= tokenInfo.symbol %></div>
+                      <div class="token-address"><%= truncateAddress(trade.token_address) %></div>
+                    </div>
+                  </div>
+                </td>
+                <td class="price-cell">$<%= formatCurrency(trade.entry_price) %></td>
+                <td class="price-cell">$<%= formatCurrency(trade.exit_price) %></td>
+                <td class="price-cell"><%= formatTokenAmount(normalizedTradeAmount) %></td>
+                <td class="price-cell <%= statusClass %>">
+                  $<%= formatCurrency(profitLoss) %>
+                  (<%= profitLossPercentage >= 0 ? '+' : '' %><%= profitLossPercentage.toFixed(2) %>%)
+                </td>
+                <td><%= dateString %></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      <% } else { %>
+        <div style="padding: 2rem; text-align: center; color: #6b7280;">
+          No recent trades found.
+        </div>
+      <% } %>
+    </div>
+    
+    <!-- Auto-refresh notice -->
+    <div class="auto-refresh">
+      Dashboard will auto-refresh in <span id="countdown">30</span> seconds
+      <a href="/" class="refresh-button">Refresh Now</a>
+    </div>
+  </div>
+  
+  <footer>
+    <div class="container">
+      Solana Trading Agent Dashboard &copy; <%= new Date().getFullYear() %>
+    </div>
+  </footer>
+</body>
+</html>

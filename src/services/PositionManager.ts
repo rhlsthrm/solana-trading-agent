@@ -55,6 +55,10 @@ export class PositionManager {
     amount: number;
     entryPrice: number;
   }): Promise<Position> {
+    console.log(`Creating position for ${params.tokenAddress} with amount ${params.amount} and entry price ${params.entryPrice}`);
+    
+    // Save the exact amount from the blockchain/Jupiter
+    // No need to manipulate it as we'll handle conversion in the UI
     const position: Position = {
       id: Math.random().toString(36).substring(7),
       tokenAddress: params.tokenAddress,
@@ -209,8 +213,8 @@ export class PositionManager {
 
         // Get current token info
         const tokenInfo = await this.jupiterService.getTokenInfo(position.tokenAddress);
-        if (!tokenInfo?.price) {
-          console.error(`Failed to get token info for ${position.tokenAddress}`);
+        if (!tokenInfo?.isValid || tokenInfo.price === null) {
+          console.error(`Failed to get valid token info for ${position.tokenAddress}`);
           this.db.exec("ROLLBACK");
           return false;
         }
@@ -299,21 +303,54 @@ export class PositionManager {
 
     for (const position of activePositions) {
       try {
-        // Get current token info from Jupiter
-        const tokenInfo = await this.jupiterService.getTokenInfo(
-          position.tokenAddress
-        );
-        if (!tokenInfo?.price) continue;
-
-        // Calculate profit/loss
-        const currentValue = position.amount * tokenInfo.price;
+        // Get the latest price directly from the price API
+        const currentPrice = await this.jupiterService.getCurrentPrice(position.tokenAddress);
+        
+        if (currentPrice === null) {
+          console.warn(`⚠️ Could not get current price for ${position.tokenAddress}, skipping update`);
+          continue;
+        }
+        
+        // Try to get the full token info for additional data
+        let tokenInfo = null;
+        try {
+          tokenInfo = await this.jupiterService.getTokenInfo(position.tokenAddress);
+        } catch (error) {
+          console.warn(`Error getting token info for ${position.tokenAddress}, using defaults`);
+        }
+        
+        // Get the number of decimal places for this token (default to 6)
+        const tokenDecimals = (tokenInfo && tokenInfo.decimals) ? tokenInfo.decimals : 6;
+        
+        // Calculate profit/loss using the amount without decimal normalization
+        const currentValue = position.amount * currentPrice;
         const entryValue = position.amount * position.entryPrice;
         const profitLoss = currentValue - entryValue;
-        const profitLossPercentage = (profitLoss / entryValue) * 100;
+        
+        // Calculate percentage based on entry value to avoid division by zero
+        const profitLossPercentage = entryValue > 0 ? (profitLoss / entryValue) * 100 : 0;
 
+        console.log(`Position update for ${position.tokenAddress}:`, {
+          amount: position.amount,
+          entryPrice: position.entryPrice,
+          currentPrice: currentPrice,
+          entryValue,
+          currentValue,
+          profitLoss,
+          profitLossPercentage: `${profitLossPercentage.toFixed(2)}%`
+        });
+
+        // Log price change
+        const priceChanged = position.currentPrice !== currentPrice;
+        if (priceChanged) {
+          console.log(`🔄 Price updated for ${position.tokenAddress} from $${position.currentPrice} to $${currentPrice}`);
+        } else {
+          console.log(`ℹ️ Price unchanged for ${position.tokenAddress}: $${currentPrice}`);
+        }
+        
         // Update position
         await this.updatePosition(position.id, {
-          currentPrice: tokenInfo.price,
+          currentPrice: currentPrice,
           profitLoss,
           lastUpdated: Date.now(),
         });
@@ -370,12 +407,20 @@ export class PositionManager {
     let totalProfitLoss = 0;
 
     for (const position of positions) {
-      if (position.currentPrice) {
+      if (position.currentPrice !== null) {
+        // Calculate using the amount as is - since we're storing raw amounts
         const value = position.amount * position.currentPrice;
         totalValue += value;
         totalProfitLoss += position.profitLoss || 0;
       }
     }
+
+    // Apply scaling in dashboard display but keep raw calculations here
+    console.log("Portfolio metrics:", {
+      totalValue,
+      totalProfitLoss,
+      positions: positions.length
+    });
 
     const profitLossPercentage =
       totalValue > 0 ? (totalProfitLoss / totalValue) * 100 : 0;

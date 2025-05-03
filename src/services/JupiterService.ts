@@ -2,9 +2,11 @@ import { Transaction, VersionedTransaction } from "@solana/web3.js";
 import { SolanaWalletClient, TokenInfo } from "../types/trade";
 
 export class JupiterService {
+  // API endpoints
   private readonly QUOTE_API = "https://quote-api.jup.ag/v6";
-  private readonly TOKENS_API = "https://tokens.jup.ag";
-  private readonly PRICE_API = "https://price.jup.ag/v4";
+  private readonly TOKENS_API = "https://token.jup.ag/all";
+  private readonly PRICE_API = "https://lite-api.jup.ag/price/v2";
+  private readonly WRAPPED_SOL = "So11111111111111111111111111111111111111112";
 
   private async fetchWithRetry(
     url: string,
@@ -144,26 +146,126 @@ export class JupiterService {
 
   public async getTokenInfo(addressOrPool: string): Promise<TokenInfo | null> {
     try {
-      const response = await fetch(`${this.TOKENS_API}/token/${addressOrPool}`);
-      if (!response.ok) {
-        console.error(`Failed to get token info: ${response.statusText}`);
-        return null;
+      console.log(`Getting token info for ${addressOrPool}`);
+      
+      // Try to get the token from Jupiter token list first
+      try {
+        // The token API returns all tokens in one call
+        const allTokensResponse = await this.fetchWithRetry(this.TOKENS_API);
+        
+        if (allTokensResponse && Array.isArray(allTokensResponse)) {
+          // Find our token in the list
+          const tokenData = allTokensResponse.find(token => 
+            token.address === addressOrPool || 
+            token.symbol?.toLowerCase() === addressOrPool.toLowerCase()
+          );
+          
+          if (tokenData) {
+            // Get the latest price using our getCurrentPrice method
+            const currentPrice = await this.getCurrentPrice(tokenData.address);
+            
+            // Use the price we received, or fall back to token data price or null
+            const finalPrice = currentPrice !== null ? currentPrice : (tokenData.price || null);
+            
+            return {
+              address: tokenData.address,
+              symbol: tokenData.symbol || "UNKNOWN",
+              name: tokenData.name || tokenData.symbol || "Unknown Token",
+              price: finalPrice,
+              decimals: tokenData.decimals || 6,
+              liquidity: tokenData.liquidity || 0,
+              volume24h: tokenData.volume24h || 0,
+              marketCap: tokenData.marketCap || 0,
+              holders: tokenData.holders || 0,
+              isValid: finalPrice !== null, // Only valid if price is available
+            };
+          }
+        }
+      } catch (error) {
+        const tokenApiError = error as Error;
+        console.warn(`Error fetching from token list API: ${tokenApiError.message}`);
       }
-
-      const data = await response.json();
+      
+      // If we can't get token data from Jupiter's token list, create minimal token info
+      // using just the price
+      console.log(`Creating minimal token info for ${addressOrPool}`);
+      
+      // Try to get the current price
+      const currentPrice = await this.getCurrentPrice(addressOrPool);
+      
+      if (currentPrice !== null) {
+        // Create minimal token info with the current price
+        return {
+          address: addressOrPool,
+          symbol: `TOKEN_${addressOrPool.substring(0, 5)}`, // Generate a placeholder symbol
+          name: `Token ${addressOrPool.substring(0, 8)}`,  // Generate a placeholder name
+          price: currentPrice,
+          decimals: 6, // Default to 6 decimals for SPL tokens
+          liquidity: 0,
+          volume24h: 0,
+          marketCap: 0,
+          holders: 0,
+          isValid: true,
+        };
+      }
+      
+      // If we couldn't get a price, return minimal info with isValid: false
+      console.warn(`Could not get price for ${addressOrPool} - returning invalid token info`);
       return {
-        address: data.address,
-        symbol: data.symbol,
-        name: data.name,
-        price: data.price,
-        liquidity: data.liquidity,
-        volume24h: data.volume24h,
-        marketCap: data.marketCap,
-        holders: data.holders,
-        isValid: true,
+        address: addressOrPool,
+        symbol: `TOKEN_${addressOrPool.substring(0, 5)}`,
+        name: `Token ${addressOrPool.substring(0, 8)}`,
+        price: null,
+        decimals: 6,
+        liquidity: 0,
+        volume24h: 0,
+        marketCap: 0,
+        holders: 0,
+        isValid: false,
       };
     } catch (error) {
       console.error("Error getting token info:", error);
+      
+      // Even on error, return minimal token info so the app doesn't crash
+      return {
+        address: addressOrPool,
+        symbol: "UNKNOWN",
+        name: "Unknown Token",
+        price: null,
+        decimals: 6,
+        liquidity: 0,
+        volume24h: 0,
+        marketCap: 0,
+        holders: 0,
+        isValid: false,
+      };
+    }
+  }
+  
+  /**
+   * Get the current price of a token directly from the Jupiter price API
+   */
+  public async getCurrentPrice(tokenAddress: string): Promise<number | null> {
+    try {
+      // Add cache-busting timestamp
+      const timestamp = Date.now();
+      const url = `${this.PRICE_API}?ids=${tokenAddress}&_t=${timestamp}`;
+      
+      console.log(`Getting current price from Jupiter: ${url}`);
+      const response = await this.fetchWithRetry(url);
+      
+      // Check if we got a valid response
+      if (response?.data?.[tokenAddress]?.price) {
+        const price = parseFloat(response.data[tokenAddress].price);
+        console.log(`📊 Current price for ${tokenAddress}: $${price}`);
+        return price;
+      } 
+      
+      // No price data available
+      console.warn(`No price data available for ${tokenAddress}`);
+      return null;
+    } catch (error) {
+      console.error(`Error getting current price for ${tokenAddress}:`, error);
       return null;
     }
   }

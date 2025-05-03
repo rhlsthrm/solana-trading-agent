@@ -23,7 +23,7 @@ export interface EnhancedSignal {
   type: "BUY" | "SELL";
   confidence: number;
   isTradeSignal: boolean;
-  price?: number;
+  price?: number | null;
   volume24h?: number;
   liquidity?: number;
 }
@@ -263,9 +263,9 @@ export class TelegramMonitorService {
         type: "BUY",
         confidence: sentiment.confidence || 70,
         isTradeSignal: true,
-        price: tokenInfo.price,
-        volume24h: tokenInfo.volume24h,
-        liquidity: tokenInfo.liquidity,
+        price: tokenInfo.price || null,
+        volume24h: tokenInfo.volume24h || 0,
+        liquidity: tokenInfo.liquidity || 0,
       };
     } catch (error) {
       console.error("Error processing message:", error);

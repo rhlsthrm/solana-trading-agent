@@ -4,7 +4,8 @@ export interface TokenInfo {
   address: string;
   symbol: string;
   name: string;
-  price: number;
+  price: number | null;
+  decimals: number;
   marketCap?: number;
   liquidity?: number;
   volume24h?: number;

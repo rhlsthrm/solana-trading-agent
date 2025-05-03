@@ -42,7 +42,7 @@ export class ProficyService {
   async getTokenInfo(addressOrPool: string): Promise<TokenInfo | null> {
     try {
       console.log(`Getting token info for: ${addressOrPool}`);
-      
+
       // Get response from Proficy bot
       const result = await this.client.sendMessage(this.PROFICY_BOT_USERNAME, {
         message: addressOrPool,
@@ -59,13 +59,15 @@ export class ProficyService {
       // Use the parser
       const parsedInfo = await this.parser.parseResponse(response.text);
       console.log("Parsed Info:", parsedInfo);
-      
+
       if (!parsedInfo || !parsedInfo.isValid) {
         console.log("Failed to parse Proficy response - No valid token found");
         return null;
       }
 
-      console.log(`Successfully parsed token: ${parsedInfo.name} (${parsedInfo.symbol}) at ${parsedInfo.solanaAddress}`);
+      console.log(
+        `Successfully parsed token: ${parsedInfo.name} (${parsedInfo.symbol}) at ${parsedInfo.solanaAddress}`
+      );
 
       // Convert to TokenInfo format
       return {
@@ -73,6 +75,7 @@ export class ProficyService {
         symbol: parsedInfo.symbol,
         name: parsedInfo.name,
         price: parsedInfo.price,
+        decimals: 6, // Default to 6 decimals for SPL tokens
         liquidity: parsedInfo.liquidity,
         volume24h: parsedInfo.volume24h,
         marketCap: parsedInfo.marketCap,

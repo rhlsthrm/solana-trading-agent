@@ -9,7 +9,7 @@ import {
 } from "./services/PositionManager";
 
 // Default check interval (in milliseconds)
-const DEFAULT_CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes
+const DEFAULT_CHECK_INTERVAL = 1 * 60 * 1000; // 1 minute - more frequent price checks
 
 async function initializeDatabase(): Promise<Database.Database> {
   // Initialize SQLite database

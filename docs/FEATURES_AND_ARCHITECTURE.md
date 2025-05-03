@@ -58,6 +58,7 @@ The application follows a service-based pattern with clear separation of concern
 5. **TradeExecutionService**: Handles the trade execution logic
 6. **PositionManager**: Manages open positions and calculates P&L
 7. **PositionMonitor**: Automated service to check positions and execute stop-loss/take-profit
+8. **Dashboard**: Web-based interface for monitoring portfolio performance (Express + EJS)
 
 ### Data Flow
 
@@ -80,6 +81,16 @@ Message → Token Info → Sentiment Analysis → Signal Validation → Trade Ex
 - ✅ Implemented manual position closing by token address
 - ✅ Added utilities for bulk position management and cleanup
 - ✅ Created dedicated position monitoring service that runs on a configurable interval
+
+### Dashboard and Monitoring
+
+- ✅ Implemented web dashboard running on localhost:3000
+- ✅ Added real-time price updates for all active positions
+- ✅ Display summary of portfolio value and performance
+- ✅ Track recent trades with profit/loss metrics
+- ✅ Created auto-refreshing view for continuous monitoring
+- ✅ Added token symbol lookup and caching for better readability
+- ✅ Implemented responsive and user-friendly interface
 
 ## Remaining Features to Implement
 
