@@ -3,6 +3,7 @@ import Database from "better-sqlite3";
 import { JupiterService } from "./JupiterService";
 import { SolanaWalletClient } from "../types/trade";
 import { randomUUID } from "../utils/uuid";
+import { tradingSchema } from "../utils/db-schema";
 
 export interface Position {
   id: string;
@@ -31,8 +32,7 @@ export class PositionManager {
   }
 
   private initializeDatabase() {
-    // Import schema from the centralized location
-    const { tradingSchema } = require('../utils/db-schema');
+    // Use the imported schema
     this.db.exec(tradingSchema);
   }
 
