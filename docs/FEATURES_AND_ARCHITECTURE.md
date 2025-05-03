@@ -33,11 +33,14 @@ This application is a Solana-based trading agent that monitors Telegram channels
 
 ### Position Management
 
-- Tracks active positions
-- Updates position values and calculates profit/loss
-- Stores position data in database
-- Implements automated stop-loss (-15%) and take-profit (+30%) execution
-- Includes dedicated position monitoring service
+- Tracks active and partially closed positions
+- Updates position values and calculates profit/loss (both realized and unrealized)
+- Stores position data with comprehensive tracking in database
+- Implements progressive profit-taking strategy (25% at 30%, 50%, and 100% profit)
+- Features dynamic trailing stop-loss (15% below highest price)
+- Includes automated position scaling for winning trades
+- Provides detailed position monitoring with visual progress indicators
+- Implements moonshot potential for highly profitable trades
 
 ### Database Management
 
@@ -94,18 +97,32 @@ Message → Token Info → Sentiment Analysis → Signal Validation → Trade Ex
 
 ## Remaining Features to Implement
 
+### Advanced Trading Strategy
+
+- ✅ Implemented progressive profit-taking strategy:
+  - 25% of position at 30% profit
+  - 25% of position at 50% profit 
+  - 25% of position at 100% profit
+  - Hold 25% for moonshot potential
+- ✅ Added partial position closing functionality with tracking
+- ✅ Developed position scaling for winning trades (10-25% profit range)
+- ✅ Created position size adjustment based on available balance
+- ✅ Added profit tracking for both realized and unrealized gains
+
 ### Enhanced Risk Management
 
-- ✅ Implemented automated stop-loss execution (-15%)
-- ✅ Added take-profit functionality (+30%)
+- ✅ Implemented automated trailing stop-loss (15% below highest price)
+- ✅ Added intelligent position monitoring with visual indicators
 - ✅ Created automated position monitor for proactive risk management
-- Develop trailing stop-loss feature
-- Create risk-adjusted position sizing
+- ✅ Implemented optimal position scaling rules (10-25% profit window)
+- ✅ Added detailed profit target tracking system
 
 ### Portfolio Management
 
+- ✅ Implement complete portfolio analytics with realized/unrealized P&L
+- ✅ Created advanced position status visualization
+- ✅ Added profit-target progress tracking
 - Add diversification controls
-- Implement portfolio analytics beyond basic P&L
 - Create position correlation analysis
 
 ### Monitoring and Reporting

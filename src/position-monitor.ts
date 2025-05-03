@@ -90,8 +90,12 @@ async function runCheck(positionManager: PositionManager) {
       return;
     }
 
-    // Update prices and check for stop-loss/take-profit conditions
+    // Update prices and check for progressive profit-taking and trailing stops
     await positionManager.updatePricesAndProfitLoss();
+
+    // Check for scaling opportunities
+    console.log("Checking for scaling opportunities...");
+    await positionManager.checkForScalingOpportunities(1, 2);
 
     // Get portfolio metrics after update
     const afterMetrics = await positionManager.getPortfolioMetrics();
@@ -106,35 +110,54 @@ async function runCheck(positionManager: PositionManager) {
 
     // Log details of each remaining position
     for (const position of remainingPositions) {
-      const entryValue = position.amount * position.entryPrice;
+      // Calculate values relative to initial position for better accuracy
+      const initialInvestment = position.initialAmount * position.entryPrice;
       const currentValue = position.currentPrice
         ? position.amount * position.currentPrice
         : 0;
       const profitLoss = position.profitLoss || 0;
+      const profitTaken = position.profitTaken || 0;
+      const totalValue = currentValue + profitTaken;
       const profitLossPercentage =
-        entryValue > 0 ? (profitLoss / entryValue) * 100 : 0;
+        initialInvestment > 0 ? ((totalValue - initialInvestment) / initialInvestment) * 100 : 0;
 
-      console.log(`Position ${position.id} (${position.tokenAddress}):`);
-      console.log(`  Amount: ${position.amount}`);
+      const progressIndicator = getProgressIndicator(position);
+
+      console.log(`Position ${position.id} (${position.tokenAddress}): ${progressIndicator}`);
+      console.log(`  Current Amount: ${position.amount} (${((position.amount / position.initialAmount) * 100).toFixed(0)}% of initial)`);
+      console.log(`  Initial Amount: ${position.initialAmount}`);
       console.log(`  Entry Price: ${position.entryPrice}`);
-      console.log(`  Current Price: ${position.currentPrice}`);
-      console.log(
-        `  P&L: ${profitLoss.toFixed(4)} (${profitLossPercentage.toFixed(2)}%)`
-      );
+      console.log(`  Current Price: ${position.currentPrice || 'Unknown'}`);
+      console.log(`  Highest Price: ${position.highestPrice || position.entryPrice}`);
+      
+      if (position.trailingStopPrice) {
+        console.log(`  Trailing Stop: ${position.trailingStopPrice} (${((position.trailingStopPrice / (position.highestPrice || position.entryPrice)) * 100).toFixed(0)}% of highest)`);
+      }
+      
+      if (profitTaken > 0) {
+        console.log(`  Profit Already Taken: ${profitTaken.toFixed(4)}`);
+      }
+      
+      console.log(`  Total P&L: ${profitLoss.toFixed(4)} (${profitLossPercentage.toFixed(2)}%)`);
 
-      // Warn if position is approaching stop-loss or take-profit
-      if (profitLossPercentage < -10 && profitLossPercentage > -15) {
-        console.log(
-          `  ⚠️ WARNING: Position approaching stop-loss (${profitLossPercentage.toFixed(
-            2
-          )}%)`
-        );
-      } else if (profitLossPercentage > 25 && profitLossPercentage < 30) {
-        console.log(
-          `  ⚠️ WARNING: Position approaching take-profit (${profitLossPercentage.toFixed(
-            2
-          )}%)`
-        );
+      // Show profit targets
+      console.log(`  Profit Targets: ${position.profit25pct ? '✅' : '⬜'} 30% | ${position.profit50pct ? '✅' : '⬜'} 50% | ${position.profit100pct ? '✅' : '⬜'} 100%`);
+
+      // Warn if position is approaching next target
+      if (!position.profit25pct && profitLossPercentage > 20 && profitLossPercentage < 30) {
+        console.log(`  ⚠️ WARNING: Position approaching first profit target (${profitLossPercentage.toFixed(2)}%)`);
+      } else if (position.profit25pct && !position.profit50pct && profitLossPercentage > 40 && profitLossPercentage < 50) {
+        console.log(`  ⚠️ WARNING: Position approaching second profit target (${profitLossPercentage.toFixed(2)}%)`);
+      } else if (position.profit50pct && !position.profit100pct && profitLossPercentage > 80 && profitLossPercentage < 100) {
+        console.log(`  ⚠️ WARNING: Position approaching third profit target (${profitLossPercentage.toFixed(2)}%)`);
+      }
+      
+      // Warn if approaching trailing stop
+      if (position.currentPrice && position.trailingStopPrice) {
+        const distanceToStop = (position.currentPrice - position.trailingStopPrice) / position.currentPrice * 100;
+        if (distanceToStop < 5) {
+          console.log(`  ⚠️ WARNING: Position within 5% of trailing stop (${distanceToStop.toFixed(2)}% away)`);
+        }
       }
     }
 
@@ -142,6 +165,25 @@ async function runCheck(positionManager: PositionManager) {
   } catch (error) {
     console.error("Error in position check:", error);
   }
+}
+
+// Helper function to generate visual indicator of position progress
+function getProgressIndicator(position: any): string {
+  if (!position.currentPrice || !position.entryPrice) return "❓";
+  
+  const initialInvestment = position.initialAmount * position.entryPrice;
+  const currentValue = position.amount * position.currentPrice;
+  const profitTaken = position.profitTaken || 0;
+  const totalValue = currentValue + profitTaken;
+  const profitLossPercentage = ((totalValue - initialInvestment) / initialInvestment) * 100;
+  
+  if (profitLossPercentage <= -10) return "🔴";
+  if (profitLossPercentage < 0) return "🟠";
+  if (profitLossPercentage < 10) return "🟡";
+  if (profitLossPercentage < 30) return "🟢";
+  if (profitLossPercentage < 50) return "💚";
+  if (profitLossPercentage < 100) return "💰";
+  return "🚀";
 }
 
 // Handle process termination
