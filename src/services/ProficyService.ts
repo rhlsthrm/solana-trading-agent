@@ -90,42 +90,41 @@ export class ProficyService {
 
   private async waitForBotResponse(
     messageId: number,
-    timeout = 10000
+    timeout = 30000 // Maximum 30 seconds wait time
   ): Promise<any | null> {
     const startTime = Date.now();
-    const requestTime = Date.now();
 
-    // Wait a short delay to ensure Proficy has time to respond
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    // Initial wait to give bot time to start processing
+    await new Promise((resolve) => setTimeout(resolve, 3000));
 
+    // Keep trying until timeout
     while (Date.now() - startTime < timeout) {
       try {
-        // Get just the latest response after our message
+        // Get the most recent message from the bot
         const messages = await this.client.getMessages(
           this.PROFICY_BOT_USERNAME,
           {
-            limit: 1,
-            offsetId: messageId,
+            limit: 1, // Just get the last message
           }
         );
 
         if (messages && messages.length > 0) {
-          const response = messages[0];
-          // Only accept messages that came after our request
-          if (response.date * 1000 > requestTime) {
-            return response;
-          }
+          console.log("✅ Got Proficy bot response");
+          return messages[0];
         }
 
-        // Wait before checking again
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        // Wait 2 seconds before trying again
+        await new Promise((resolve) => setTimeout(resolve, 2000));
       } catch (error) {
-        console.error("Error waiting for bot response:", error);
-        return null;
+        console.error("Error checking for bot response:", error);
+        // Wait before retrying
+        await new Promise((resolve) => setTimeout(resolve, 2000));
       }
     }
 
-    console.log("Timeout waiting for Proficy bot response");
+    console.log(
+      `⏱️ Timed out after ${timeout / 1000}s waiting for Proficy bot response`
+    );
     return null;
   }
 }

@@ -26,6 +26,20 @@ export interface EnhancedSignal {
   price?: number | null;
   volume24h?: number;
   liquidity?: number;
+  isUpdateMessage?: boolean;
+  pumpDetected?: boolean;
+  pumpMultiplier?: number;
+  buySignalStrength?: number;
+  urgencyLevel?: "low" | "medium" | "high";
+  reasonForBuy?: string;
+}
+
+// Interface for positions (used for sell detection)
+interface Position {
+  tokenAddress: string;
+  amount: number;
+  entryPrice: number | null;
+  entryTime?: number;
 }
 
 export class TelegramMonitorService {
@@ -35,6 +49,21 @@ export class TelegramMonitorService {
   private isConnected: boolean = false;
   private readonly minLiquidity = 50000;
   private readonly minVolume = 10000;
+
+  // Token mention tracking for better context analysis
+  private tokenMentions: Map<
+    string,
+    {
+      lastMentioned: number;
+      mentionCount: number;
+      firstSeenPrice?: number;
+      lastSeenPrice?: number;
+      priceHistory: Array<{ timestamp: number; price: number }>;
+    }
+  > = new Map();
+
+  // Cache of our positions to avoid repeated DB queries
+  private positionsCache: Map<string, Position> = new Map();
 
   constructor(
     private config: {
@@ -65,10 +94,73 @@ export class TelegramMonitorService {
       await this.initializeTelegramClient();
       await this.setupMessageHandler();
       await this.verifyChannelAccess();
+      await this.initializePositionsCache();
       this.startHealthCheck();
+      this.startPositionsCacheRefresh();
     } catch (error) {
       console.error("Error starting Telegram service:", error);
       throw error;
+    }
+  }
+
+  private async initializePositionsCache() {
+    try {
+      // Get all active positions from the positions table
+      const positions = this.config.db
+        .prepare(
+          `
+          SELECT * FROM positions
+          WHERE status = 'ACTIVE'
+        `
+        )
+        .all() as Position[];
+
+      // Store in cache
+      positions.forEach((position) => {
+        this.positionsCache.set(position.tokenAddress, position);
+      });
+    } catch (error) {
+      console.error("Error initializing positions cache:", error);
+      // Non-critical error, we'll continue with an empty cache
+    }
+  }
+
+  private startPositionsCacheRefresh() {
+    // Refresh the positions cache every 5 minutes
+    setInterval(async () => {
+      await this.initializePositionsCache();
+    }, 5 * 60 * 1000);
+  }
+
+  private async checkForExistingPosition(
+    tokenAddress: string
+  ): Promise<Position | null> {
+    try {
+      // First check cache
+      if (this.positionsCache.has(tokenAddress)) {
+        return this.positionsCache.get(tokenAddress) || null;
+      }
+
+      // If not in cache, check DB directly (and update cache)
+      const position = this.config.db
+        .prepare(
+          `
+          SELECT * FROM positions
+          WHERE token_address = ? AND status = 'ACTIVE'
+        `
+        )
+        .get(tokenAddress) as Position | undefined;
+
+      if (position) {
+        // Update cache
+        this.positionsCache.set(tokenAddress, position);
+        return position;
+      }
+
+      return null;
+    } catch (error) {
+      console.error("Error checking for existing position:", error);
+      return null;
     }
   }
 
@@ -76,7 +168,7 @@ export class TelegramMonitorService {
     console.log("🔄 Reconnecting to Telegram...");
     try {
       await this.client.disconnect();
-      
+
       // Small delay to ensure clean disconnect
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
@@ -99,15 +191,10 @@ export class TelegramMonitorService {
   private startHealthCheck() {
     setInterval(async () => {
       const timeSinceLastMessage = Date.now() - this.lastMessageTime;
-      
-      // Only log if no message for over a minute
-      if (timeSinceLastMessage > 60 * 1000) {
-        console.log(`⏲️ No messages for ${Math.round(timeSinceLastMessage / 1000)}s`);
-      }
 
       // Reduce the threshold to 2 minutes
       if (timeSinceLastMessage > 2 * 60 * 1000) {
-        console.log("⚠️ No recent messages, checking connection...");
+        console.log("⚠️ Checking connection health...");
         try {
           const isAlive = await this.testConnection();
           if (!isAlive) {
@@ -119,7 +206,7 @@ export class TelegramMonitorService {
           await this.reconnect();
         }
       }
-    }, 30000); // Check every 30 seconds
+    }, 30000);
   }
 
   private async testConnection(): Promise<boolean> {
@@ -150,7 +237,7 @@ export class TelegramMonitorService {
       try {
         const message = event.message;
         if (!message?.text) return; // Skip if no text in message
-        
+
         const chat = await message.getChat();
 
         // Update last message time for health check
@@ -167,7 +254,7 @@ export class TelegramMonitorService {
           if (signal?.isTradeSignal) {
             console.log("🚨 Trading Signal Detected:", {
               token: signal.tokenAddress,
-              type: signal.type
+              type: signal.type,
             });
 
             const isValid = await this.validateSignal(signal);
@@ -196,6 +283,66 @@ export class TelegramMonitorService {
   private readonly SOLANA_ADDRESS_REGEX =
     /(?<!\/)([1-9A-HJ-NP-Za-km-z]{32,44})(?!\/)/g;
 
+  private updateTokenMentionHistory(
+    tokenAddress: string,
+    price: number | null
+  ): {
+    isFirstMention: boolean;
+    priceChange: number;
+    timeSinceLastMention: number;
+    numberOfMentions: number;
+  } {
+    const now = Date.now();
+    const existingData = this.tokenMentions.get(tokenAddress);
+
+    if (!existingData) {
+      // First time seeing this token
+      this.tokenMentions.set(tokenAddress, {
+        lastMentioned: now,
+        mentionCount: 1,
+        firstSeenPrice: price || undefined,
+        lastSeenPrice: price || undefined,
+        priceHistory: price ? [{ timestamp: now, price }] : [],
+      });
+
+      return {
+        isFirstMention: true,
+        priceChange: 0,
+        timeSinceLastMention: 0,
+        numberOfMentions: 1,
+      };
+    } else {
+      // Update existing token data
+      const timeSinceLastMention = now - existingData.lastMentioned;
+      const newMentionCount = existingData.mentionCount + 1;
+
+      // Calculate price change if we have price data
+      let priceChange = 0;
+      if (price && existingData.firstSeenPrice) {
+        priceChange = (price / existingData.firstSeenPrice - 1) * 100; // as percentage
+      }
+
+      // Update the token mention data
+      this.tokenMentions.set(tokenAddress, {
+        lastMentioned: now,
+        mentionCount: newMentionCount,
+        firstSeenPrice: existingData.firstSeenPrice || price || undefined,
+        lastSeenPrice: price || existingData.lastSeenPrice,
+        priceHistory: [
+          ...existingData.priceHistory,
+          ...(price ? [{ timestamp: now, price }] : []),
+        ],
+      });
+
+      return {
+        isFirstMention: false,
+        priceChange,
+        timeSinceLastMention,
+        numberOfMentions: newMentionCount,
+      };
+    }
+  }
+
   private async processMessage(
     message: string
   ): Promise<EnhancedSignal | null> {
@@ -222,26 +369,120 @@ export class TelegramMonitorService {
         return null;
       }
 
-      // 2. Analyze sentiment
+      // Update token mention history and get context about previous mentions
+      const mentionContext = this.updateTokenMentionHistory(
+        tokenInfo.address,
+        tokenInfo.price || null
+      );
+
+      // 2. Analyze sentiment with enhanced analysis
       const sentiment = await this.config.sentimentService.analyzeSentiment(
         message
       );
-
       if (!sentiment) {
         return null;
       }
 
-      // 3. Create enhanced signal
-      return {
+      // Try to get enhanced sentiment analysis
+      const enhancedSentiment =
+        await this.config.sentimentService.analyzeEnhancedSentiment(message);
+
+      // Check if we already have a position for this token
+      // This will determine if we should consider selling
+      const existingPosition = await this.checkForExistingPosition(
+        tokenInfo.address
+      );
+
+      // Signal type will depend on context of the message and our position
+      let signalType = "BUY"; // Default to buy
+
+      // If we have our own opinion on whether this should be a sell signal based on pump size
+      let shouldBeConsideredSell = false;
+
+      // Create enhanced signal with additional details if available
+      const signal: EnhancedSignal = {
         id: randomUUID(),
         tokenAddress: tokenInfo.address,
-        type: "BUY",
+        type: signalType as "BUY" | "SELL", // Will be updated below
         confidence: sentiment.confidence || 70,
-        isTradeSignal: true,
+        isTradeSignal: sentiment.isTradeSignal,
         price: tokenInfo.price || null,
         volume24h: tokenInfo.volume24h || 0,
         liquidity: tokenInfo.liquidity || 0,
       };
+
+      // Add enhanced sentiment data if available
+      if (enhancedSentiment) {
+        // If this is not the first mention and the AI didn't detect an update,
+        // but we know it's been mentioned before, mark it as an update
+        const isLikelyUpdate =
+          !mentionContext.isFirstMention &&
+          mentionContext.timeSinceLastMention < 12 * 60 * 60 * 1000; // Within 12 hours
+
+        signal.isUpdateMessage =
+          enhancedSentiment.isUpdateMessage || isLikelyUpdate;
+
+        // If we detected a price increase but the AI didn't detect a pump,
+        // use our data to determine if it's pumped
+        const hasPumped = mentionContext.priceChange > 100; // Over 100% increase is a pump
+        signal.pumpDetected = enhancedSentiment.pumpDetected || hasPumped;
+
+        // Calculate pump multiplier from our data if AI didn't provide it
+        let pumpMultiplier = enhancedSentiment.pumpMultiplier;
+        if (hasPumped && !pumpMultiplier) {
+          pumpMultiplier = mentionContext.priceChange / 100 + 1; // Convert percentage to multiplier
+        }
+        signal.pumpMultiplier = pumpMultiplier;
+
+        signal.buySignalStrength = enhancedSentiment.buySignalStrength;
+        signal.urgencyLevel = enhancedSentiment.urgencyLevel;
+        signal.reasonForBuy = enhancedSentiment.reasonForBuy;
+
+        // SELL SIGNAL DETECTION LOGIC
+        // If the AI detected this as a sell signal, respect that
+        if (enhancedSentiment.type === "SELL") {
+          shouldBeConsideredSell = true;
+        }
+
+        // Large pumps (5x+) should be considered sell signals if we own the token
+        if ((pumpMultiplier || 0) >= 5 && existingPosition) {
+          shouldBeConsideredSell = true;
+          console.log(
+            `💰 Detected large pump (${pumpMultiplier}x) for token we own - considering sell signal`
+          );
+        }
+
+        // Messages specifically about big multiples on tokens we own should be considered sell signals
+        if (
+          signal.isUpdateMessage &&
+          (pumpMultiplier || 0) >= 3 &&
+          existingPosition
+        ) {
+          shouldBeConsideredSell = true;
+          console.log(
+            `📈 Update message with significant gains (${pumpMultiplier}x) - considering sell signal`
+          );
+        }
+
+        // Update the signal type based on our analysis
+        if (shouldBeConsideredSell) {
+          signal.type = "SELL";
+
+          // Mark this as a sell signal
+          console.log(
+            `🔄 Converting to SELL signal for ${
+              tokenInfo.symbol || tokenInfo.address
+            }`
+          );
+        } else {
+          signal.type = enhancedSentiment.type || "BUY";
+        }
+
+        // Log compact signal summary
+        console.log(`📊 Signal: ${signal.type} ${tokenInfo.symbol || tokenInfo.address} | Pump: ${signal.pumpDetected ? `${signal.pumpMultiplier}x` : "No"} | Urgency: ${signal.urgencyLevel || "normal"}`);
+      }
+
+      return signal;
     } catch (error) {
       console.error("Error processing message:", error);
       return null;
@@ -257,21 +498,48 @@ export class TelegramMonitorService {
         throw error;
       }
     }
-    console.log(`✅ Connected to ${this.channelIds.length} channels`);
+    console.log(`✅ Monitoring ${this.channelIds.length} channels`);
   }
 
   private async validateSignal(signal: EnhancedSignal): Promise<boolean> {
     try {
+      // Capture rejection reason for better logging
+      let rejectionReason = "";
+
+      // For SELL signals, we only care if we have a position
+      if (signal.type === "SELL") {
+        // Check if we have a position for this token
+        const position = await this.checkForExistingPosition(
+          signal.tokenAddress
+        );
+
+        if (!position) {
+          await this.storeSignal(signal);
+          console.log(`ℹ️ No position to sell for ${signal.tokenAddress}`);
+          return false;
+        }
+
+        // Sell signals are valid if we have a position
+        await this.storeSignal(signal);
+        console.log(`💰 Valid SELL signal for ${signal.tokenAddress}`);
+        return true;
+      }
+
+      // For BUY signals, apply our usual criteria:
+
+      // Basic liquidity check
       if (signal.liquidity && signal.liquidity < this.minLiquidity) {
-        // Log reason for signal rejection but less verbose
+        console.log(`❌ Rejected: Insufficient liquidity ($${signal.liquidity})`);
         return false;
       }
 
+      // Basic volume check
       if (signal.volume24h && signal.volume24h < this.minVolume) {
-        // Log reason for signal rejection but less verbose
+        console.log(`❌ Rejected: Low volume ($${signal.volume24h})`);
         return false;
       }
 
+      // Check for recent trades of the same token
       const recentTrade = this.config.db
         .prepare(
           `
@@ -284,9 +552,25 @@ export class TelegramMonitorService {
         .get(signal.tokenAddress);
 
       if (recentTrade) {
-        // Already traded recently
+        console.log(`❌ Rejected: Already traded in last 24h`);
         return false;
       }
+
+      // For pumped tokens, we only require higher liquidity as a safety measure
+      if (signal.pumpDetected && (signal.pumpMultiplier || 0) >= 2) {
+        // For any pumped token, require higher liquidity based on pump size
+        const pumpMultiplier = signal.pumpMultiplier || 0;
+        const liquidityMultiplier = Math.min(1 + pumpMultiplier * 0.5, 3); // Cap at 3x base requirement
+        const pumpedTokenMinLiquidity = this.minLiquidity * liquidityMultiplier;
+
+        if (signal.liquidity && signal.liquidity < pumpedTokenMinLiquidity) {
+          console.log(`❌ Rejected: Pumped token (${pumpMultiplier}x) with low liquidity`);
+          return false;
+        }
+      }
+
+      // Log a simple acceptance message
+      console.log(`✅ Accepting ${signal.type} signal for ${signal.tokenAddress}`);
 
       await this.storeSignal(signal);
       return true;
@@ -297,43 +581,198 @@ export class TelegramMonitorService {
   }
 
   private async storeSignal(signal: EnhancedSignal) {
-    const stmt = this.config.db.prepare(`
-     INSERT INTO signals (
-       id,
-       source,
-       token_address,
-       signal_type,
-       price,
-       timestamp,
-       processed,
-       confidence,
-       liquidity,
-       volume_24h
-     ) VALUES (?, ?, ?, ?, ?, unixepoch(), 0, ?, ?, ?)
-   `);
+    try {
+      // First, make sure the signals table has the new columns
+      // Note: Uses a transaction to ensure atomicity
+      // Check and add columns one at a time with proper error handling
+      try {
+        // Check if is_update_message column exists, add if not
+        const isUpdateMessageCheck = this.config.db
+          .prepare(
+            "SELECT COUNT(*) as count FROM pragma_table_info('signals') WHERE name='is_update_message'"
+          )
+          .get() as { count: number };
 
-    stmt.run(
-      signal.id,
-      "@DegenSeals",
-      signal.tokenAddress,
-      signal.type,
-      signal.price || 0,
-      signal.confidence || 50,
-      signal.liquidity || 0,
-      signal.volume24h || 0
-    );
+        if (isUpdateMessageCheck.count === 0) {
+          this.config.db
+            .prepare(
+              "ALTER TABLE signals ADD COLUMN is_update_message BOOLEAN DEFAULT 0"
+            )
+            .run();
+        }
+
+        // Check if pump_detected column exists, add if not
+        const pumpDetectedCheck = this.config.db
+          .prepare(
+            "SELECT COUNT(*) as count FROM pragma_table_info('signals') WHERE name='pump_detected'"
+          )
+          .get() as { count: number };
+
+        if (pumpDetectedCheck.count === 0) {
+          this.config.db
+            .prepare(
+              "ALTER TABLE signals ADD COLUMN pump_detected BOOLEAN DEFAULT 0"
+            )
+            .run();
+        }
+
+        // Check if pump_multiplier column exists, add if not
+        const pumpMultiplierCheck = this.config.db
+          .prepare(
+            "SELECT COUNT(*) as count FROM pragma_table_info('signals') WHERE name='pump_multiplier'"
+          )
+          .get() as { count: number };
+
+        if (pumpMultiplierCheck.count === 0) {
+          this.config.db
+            .prepare(
+              "ALTER TABLE signals ADD COLUMN pump_multiplier REAL DEFAULT 0"
+            )
+            .run();
+        }
+
+        // Check if buy_signal_strength column exists, add if not
+        const buySignalStrengthCheck = this.config.db
+          .prepare(
+            "SELECT COUNT(*) as count FROM pragma_table_info('signals') WHERE name='buy_signal_strength'"
+          )
+          .get() as { count: number };
+
+        if (buySignalStrengthCheck.count === 0) {
+          this.config.db
+            .prepare(
+              "ALTER TABLE signals ADD COLUMN buy_signal_strength INTEGER DEFAULT 0"
+            )
+            .run();
+        }
+
+        // Check if urgency_level column exists, add if not
+        const urgencyLevelCheck = this.config.db
+          .prepare(
+            "SELECT COUNT(*) as count FROM pragma_table_info('signals') WHERE name='urgency_level'"
+          )
+          .get() as { count: number };
+
+        if (urgencyLevelCheck.count === 0) {
+          this.config.db
+            .prepare(
+              "ALTER TABLE signals ADD COLUMN urgency_level TEXT DEFAULT NULL"
+            )
+            .run();
+        }
+
+        // Check if reason_for_buy column exists, add if not
+        const reasonForBuyCheck = this.config.db
+          .prepare(
+            "SELECT COUNT(*) as count FROM pragma_table_info('signals') WHERE name='reason_for_buy'"
+          )
+          .get() as { count: number };
+
+        if (reasonForBuyCheck.count === 0) {
+          this.config.db
+            .prepare(
+              "ALTER TABLE signals ADD COLUMN reason_for_buy TEXT DEFAULT NULL"
+            )
+            .run();
+        }
+      } catch (error) {
+        console.error("Error modifying table schema:", error);
+        // Continue and try to insert anyway
+      }
+
+      // Now insert with the enhanced fields
+      const stmt = this.config.db.prepare(`
+       INSERT INTO signals (
+         id,
+         source,
+         token_address,
+         signal_type,
+         price,
+         timestamp,
+         processed,
+         confidence,
+         liquidity,
+         volume_24h,
+         is_update_message,
+         pump_detected,
+         pump_multiplier,
+         buy_signal_strength,
+         urgency_level,
+         reason_for_buy
+       ) VALUES (?, ?, ?, ?, ?, unixepoch(), 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     `);
+
+      stmt.run(
+        signal.id,
+        "@DegenSeals",
+        signal.tokenAddress,
+        signal.type,
+        signal.price || 0,
+        signal.confidence || 50,
+        signal.liquidity || 0,
+        signal.volume24h || 0,
+        signal.isUpdateMessage ? 1 : 0,
+        signal.pumpDetected ? 1 : 0,
+        signal.pumpMultiplier || 0,
+        signal.buySignalStrength || 0,
+        signal.urgencyLevel || null,
+        signal.reasonForBuy || null
+      );
+    } catch (error) {
+      console.error("Error storing signal:", error);
+      // Continue execution rather than throwing - this is a non-critical operation
+    }
   }
 
   private async processValidSignal(signal: EnhancedSignal) {
-    console.log("✅ Valid signal detected for token:", signal.tokenAddress);
+    // Different handling based on signal type
+    if (signal.type === "SELL") {
+      console.log(
+        "💰 Valid SELL signal detected for token:",
+        signal.tokenAddress
+      );
 
-    const success = await this.config.tradeExecutionService.executeTrade(
-      signal
-    );
-    if (success) {
-      console.log("🎯 Trade executed successfully for", signal.tokenAddress);
+      // Don't wait for this future update to TradeExecutionService
+      // This would be implemented in the next task
+      this.handleSellSignal(signal);
     } else {
-      console.log("❌ Trade execution failed for", signal.tokenAddress);
+      console.log(
+        "✅ Valid BUY signal detected for token:",
+        signal.tokenAddress
+      );
+
+      const success = await this.config.tradeExecutionService.executeTrade(
+        signal
+      );
+      if (success) {
+        console.log("🎯 Trade executed successfully for", signal.tokenAddress);
+      } else {
+        console.log("❌ Trade execution failed for", signal.tokenAddress);
+      }
+    }
+  }
+
+  // Handle sell signals by executing the trade via TradeExecutionService
+  private async handleSellSignal(signal: EnhancedSignal) {
+    try {
+      console.log(`🔄 Executing SELL signal for ${signal.tokenAddress}`);
+
+      const success = await this.config.tradeExecutionService.executeTrade(
+        signal
+      );
+
+      if (success) {
+        console.log(`✅ Successfully sold position in ${signal.tokenAddress}`);
+      } else {
+        console.log(`❌ Failed to sell position in ${signal.tokenAddress}`);
+      }
+
+      // Mark the signal as processed
+      this.config.db
+        .prepare(`UPDATE signals SET processed = 1 WHERE id = ?`)
+        .run(signal.id);
+    } catch (error) {
+      console.error("Error handling sell signal:", error);
     }
   }
 }

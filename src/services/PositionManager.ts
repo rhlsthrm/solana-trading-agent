@@ -56,8 +56,10 @@ export class PositionManager {
     amount: number;
     entryPrice: number;
   }): Promise<Position> {
-    console.log(`Creating position for ${params.tokenAddress} with amount ${params.amount} and entry price ${params.entryPrice}`);
-    
+    console.log(
+      `Creating position for ${params.tokenAddress} with amount ${params.amount} and entry price ${params.entryPrice}`
+    );
+
     // Save the exact amount from the blockchain/Jupiter
     // No need to manipulate it as we'll handle conversion in the UI
     const position: Position = {
@@ -114,7 +116,7 @@ export class PositionManager {
     FROM positions 
     WHERE id = ?
   `);
-  
+
   async getPosition(id: string): Promise<Position | null> {
     const position = this.getPositionStmt.get(id);
     return (position as Position) || null;
@@ -135,7 +137,7 @@ export class PositionManager {
     WHERE token_address = ? 
     AND status = 'ACTIVE'
   `);
-  
+
   async getPositionByToken(tokenAddress: string): Promise<Position | null> {
     const position = this.getPositionByTokenStmt.get(tokenAddress);
     return (position as Position) || null;
@@ -155,7 +157,7 @@ export class PositionManager {
     FROM positions 
     WHERE status = 'ACTIVE'
   `);
-    
+
   async getAllActivePositions(): Promise<Position[]> {
     // Execute the prepared statement
     const positions = this.getAllActivePositionsStmt.all();
@@ -174,7 +176,7 @@ export class PositionManager {
       status = ?
     WHERE id = ?
   `);
-  
+
   async updatePosition(
     id: string,
     updates: Partial<Omit<Position, "id">>
@@ -210,14 +212,44 @@ export class PositionManager {
         }
 
         // Get current token info
-        const tokenInfo = await this.jupiterService.getTokenInfo(position.tokenAddress);
+        const tokenInfo = await this.jupiterService.getTokenInfo(
+          position.tokenAddress
+        );
         if (!tokenInfo?.isValid || tokenInfo.price === null) {
-          console.error(`Failed to get valid token info for ${position.tokenAddress}`);
+          console.error(
+            `Failed to get valid token info for ${position.tokenAddress}`
+          );
           this.db.exec("ROLLBACK");
           return false;
         }
 
-        // Get quote for selling tokens back to SOL
+        // Get the actual token balance from the blockchain
+        const { getTokenBalance } = await import("../utils/token-balance");
+        const walletAddress = this.walletClient.getAddress();
+
+        const actualTokenBalance = await getTokenBalance(
+          position.tokenAddress,
+          walletAddress
+        );
+
+        if (actualTokenBalance === null) {
+          console.error(
+            `Failed to get actual token balance for ${position.tokenAddress}`
+          );
+          this.db.exec("ROLLBACK");
+          return false;
+        }
+
+        // If we have zero tokens, we can't sell anything
+        if (actualTokenBalance <= 0) {
+          this.db.exec("ROLLBACK");
+          return false;
+        }
+
+        // Update position amount to match actual balance (prevents "insufficient funds" errors)
+        position.amount = Number(actualTokenBalance);
+
+        // Get quote for selling tokens back to SOL using the corrected amount
         const WRAPPED_SOL = "So11111111111111111111111111111111111111112";
         const quote = await this.jupiterService.getQuote({
           inputMint: position.tokenAddress,
@@ -226,13 +258,18 @@ export class PositionManager {
         });
 
         if (!quote) {
-          console.error(`Failed to get quote for selling ${position.tokenAddress}`);
+          console.error(
+            `Failed to get quote for selling ${position.tokenAddress}`
+          );
           this.db.exec("ROLLBACK");
           return false;
         }
 
         // Execute swap (sell tokens back to SOL)
-        const result = await this.jupiterService.executeSwap(quote, this.walletClient);
+        const result = await this.jupiterService.executeSwap(
+          quote,
+          this.walletClient
+        );
         if (!result) {
           console.error(`Failed to execute swap for ${position.tokenAddress}`);
           this.db.exec("ROLLBACK");
@@ -282,7 +319,9 @@ export class PositionManager {
 
         // Commit the transaction
         this.db.exec("COMMIT");
-        console.log(`✅ Position ${id} closed successfully. Final P&L: ${profitLoss}`);
+        console.log(
+          `✅ Position ${id} closed successfully. Final P&L: ${profitLoss}`
+        );
         return true;
       } catch (error) {
         // Rollback on error
@@ -302,7 +341,7 @@ export class PositionManager {
     // Categorize positions into high-priority and regular updates
     const highPriorityPositions: Position[] = [];
     const regularPositions: Position[] = [];
-    
+
     // First pass - categorize positions without making API calls
     for (const position of activePositions) {
       try {
@@ -310,13 +349,14 @@ export class PositionManager {
         if (position.currentPrice && position.entryPrice) {
           const lastKnownProfitLoss = position.profitLoss || 0;
           const entryValue = position.amount * position.entryPrice;
-          const profitLossPercentage = entryValue > 0 ? (lastKnownProfitLoss / entryValue) * 100 : 0;
-          
+          const profitLossPercentage =
+            entryValue > 0 ? (lastKnownProfitLoss / entryValue) * 100 : 0;
+
           // Positions approaching stop-loss or take-profit thresholds get priority
-          const approachingThreshold = 
+          const approachingThreshold =
             (profitLossPercentage < -10 && profitLossPercentage > -15) || // Approaching stop-loss
-            (profitLossPercentage > 25 && profitLossPercentage < 30);     // Approaching take-profit
-            
+            (profitLossPercentage > 25 && profitLossPercentage < 30); // Approaching take-profit
+
           if (approachingThreshold) {
             highPriorityPositions.push(position);
           } else {
@@ -332,52 +372,62 @@ export class PositionManager {
         highPriorityPositions.push(position);
       }
     }
-    
+
     // No need to log position counts
-    
+
     // Process high-priority positions first
     for (const position of highPriorityPositions) {
       await this.updatePositionPrice(position);
     }
-    
+
     // Then process regular positions
     for (const position of regularPositions) {
       await this.updatePositionPrice(position);
     }
   }
-  
+
   // Helper method to update a single position
   private async updatePositionPrice(position: Position): Promise<void> {
     try {
       // Get the latest price directly from the price API
-      const currentPrice = await this.jupiterService.getCurrentPrice(position.tokenAddress);
-      
+      const currentPrice = await this.jupiterService.getCurrentPrice(
+        position.tokenAddress
+      );
+
       if (currentPrice === null) {
-        console.warn(`⚠️ Could not get current price for ${position.tokenAddress}, skipping update`);
+        console.warn(
+          `⚠️ Could not get current price for ${position.tokenAddress}, skipping update`
+        );
         return;
       }
-      
+
       // Try to get the full token info for additional data
       let tokenInfo = null;
       try {
-        tokenInfo = await this.jupiterService.getTokenInfo(position.tokenAddress);
+        tokenInfo = await this.jupiterService.getTokenInfo(
+          position.tokenAddress
+        );
       } catch (error) {
-        console.warn(`Error getting token info for ${position.tokenAddress}, using defaults`);
+        console.warn(
+          `Error getting token info for ${position.tokenAddress}, using defaults`
+        );
       }
-      
+
       // Get the number of decimal places for this token (default to 6)
-      const tokenDecimals = (tokenInfo && tokenInfo.decimals) ? tokenInfo.decimals : 6;
-      
+      const tokenDecimals =
+        tokenInfo && tokenInfo.decimals ? tokenInfo.decimals : 6;
+
       // Calculate profit/loss using the amount without decimal normalization
       const currentValue = position.amount * currentPrice;
       const entryValue = position.amount * position.entryPrice;
       const profitLoss = currentValue - entryValue;
-      
+
       // Calculate percentage based on entry value to avoid division by zero
-      const profitLossPercentage = entryValue > 0 ? (profitLoss / entryValue) * 100 : 0;
+      const profitLossPercentage =
+        entryValue > 0 ? (profitLoss / entryValue) * 100 : 0;
 
       // No logging for regular price updates
-      
+
       // Update position
       await this.updatePosition(position.id, {
         currentPrice: currentPrice,
@@ -387,27 +437,47 @@ export class PositionManager {
 
       // Check for stop loss (example: -15%)
       if (profitLossPercentage < -15) {
-        console.log(`⚠️ Stop loss triggered for position ${position.id} (${profitLossPercentage.toFixed(2)}%)`);
-        
+        console.log(
+          `⚠️ Stop loss triggered for position ${
+            position.id
+          } (${profitLossPercentage.toFixed(2)}%)`
+        );
+
         // Execute stop loss by closing the position
         const success = await this.closePosition(position.id);
         if (success) {
-          console.log(`✅ Stop loss executed for position ${position.id} at ${profitLossPercentage.toFixed(2)}%`);
+          console.log(
+            `✅ Stop loss executed for position ${
+              position.id
+            } at ${profitLossPercentage.toFixed(2)}%`
+          );
         } else {
-          console.error(`❌ Failed to execute stop loss for position ${position.id}`);
+          console.error(
+            `❌ Failed to execute stop loss for position ${position.id}`
+          );
         }
       }
 
       // Check for take profit (example: +30%)
       if (profitLossPercentage > 30) {
-        console.log(`🎯 Take profit triggered for position ${position.id} (${profitLossPercentage.toFixed(2)}%)`);
-        
+        console.log(
+          `🎯 Take profit triggered for position ${
+            position.id
+          } (${profitLossPercentage.toFixed(2)}%)`
+        );
+
         // Execute take profit by closing the position
         const success = await this.closePosition(position.id);
         if (success) {
-          console.log(`✅ Take profit executed for position ${position.id} at ${profitLossPercentage.toFixed(2)}%`);
+          console.log(
+            `✅ Take profit executed for position ${
+              position.id
+            } at ${profitLossPercentage.toFixed(2)}%`
+          );
         } else {
-          console.error(`❌ Failed to execute take profit for position ${position.id}`);
+          console.error(
+            `❌ Failed to execute take profit for position ${position.id}`
+          );
         }
       }
     } catch (error) {
@@ -419,13 +489,11 @@ export class PositionManager {
     try {
       const position = await this.getPositionByToken(tokenAddress);
       if (!position) {
-        console.log(`No active position found for token ${tokenAddress}`);
         return false;
       }
-      
+
       return await this.closePosition(position.id);
     } catch (error) {
-      console.error(`Error closing position for token ${tokenAddress}:`, error);
       return false;
     }
   }
