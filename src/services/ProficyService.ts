@@ -93,10 +93,14 @@ export class ProficyService {
     timeout = 10000
   ): Promise<any | null> {
     const startTime = Date.now();
+    const requestTime = Date.now();
+
+    // Wait a short delay to ensure Proficy has time to respond
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
     while (Date.now() - startTime < timeout) {
       try {
-        // Get responses after our message
+        // Get just the latest response after our message
         const messages = await this.client.getMessages(
           this.PROFICY_BOT_USERNAME,
           {
@@ -106,11 +110,15 @@ export class ProficyService {
         );
 
         if (messages && messages.length > 0) {
-          return messages[0];
+          const response = messages[0];
+          // Only accept messages that came after our request
+          if (response.date * 1000 > requestTime) {
+            return response;
+          }
         }
 
         // Wait before checking again
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       } catch (error) {
         console.error("Error waiting for bot response:", error);
         return null;
