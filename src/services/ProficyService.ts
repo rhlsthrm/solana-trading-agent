@@ -2,7 +2,7 @@ import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
 import { TokenInfo } from "../types/trade";
 import { ProficyParser } from "./ProficyParser";
-import { IAgentRuntime } from "@ai16z/eliza";
+import { IAgentRuntime } from "@elizaos/core";
 
 export class ProficyService {
   private client: TelegramClient;

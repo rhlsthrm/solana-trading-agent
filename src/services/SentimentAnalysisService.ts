@@ -1,4 +1,4 @@
-import { IAgentRuntime, generateObject, ModelClass } from "@ai16z/eliza";
+import { IAgentRuntime, generateObject, ModelClass } from "@elizaos/core";
 import { SignalSchema } from "./TelegramMonitorService";
 import { z } from "zod";
 

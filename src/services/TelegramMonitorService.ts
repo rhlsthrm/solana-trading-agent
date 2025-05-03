@@ -2,7 +2,7 @@ import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
 import { NewMessage } from "telegram/events";
 import input from "input";
-import { IAgentRuntime } from "@ai16z/eliza";
+import { IAgentRuntime } from "@elizaos/core";
 import { z } from "zod";
 import Database from "better-sqlite3";
 import { JupiterService } from "./JupiterService";
@@ -30,14 +30,8 @@ export interface EnhancedSignal {
 
 export class TelegramMonitorService {
   private client: TelegramClient;
-  private channelIds: string[] = [
-    "DegenSeals",
-    "fadedarc",
-    "goattests",
-    "cryptomattcall",
-  ];
+  private channelIds: string[] = ["DegenSeals", "fadedarc", "goattests"];
   private lastMessageTime: number = Date.now();
-  private readonly RECONNECT_INTERVAL = 5 * 60 * 1000; // 5 minutes
   private isConnected: boolean = false;
   private readonly minLiquidity = 50000;
   private readonly minVolume = 10000;
@@ -215,7 +209,8 @@ export class TelegramMonitorService {
     }, 60000); // Log every minute
   }
 
-  private readonly SOLANA_ADDRESS_REGEX = /(?<!\/)([1-9A-HJ-NP-Za-km-z]{32,44})(?!\/)/g;
+  private readonly SOLANA_ADDRESS_REGEX =
+    /(?<!\/)([1-9A-HJ-NP-Za-km-z]{32,44})(?!\/)/g;
 
   private async processMessage(
     message: string
@@ -224,13 +219,13 @@ export class TelegramMonitorService {
       // First, try to extract a token address directly from the message
       const addressMatches = [...message.matchAll(this.SOLANA_ADDRESS_REGEX)];
       let tokenAddress = null;
-      
+
       if (addressMatches.length > 0) {
         // Use the first address found in the message
         tokenAddress = addressMatches[0][0];
         console.log(`Found token address directly in message: ${tokenAddress}`);
       }
-      
+
       // If we found a token address in the message, use it with Proficy for more info
       let tokenInfo;
       if (tokenAddress) {
@@ -239,7 +234,7 @@ export class TelegramMonitorService {
         // If no direct address found, let Proficy try to extract it from the full message
         tokenInfo = await this.config.proficyService.getTokenInfo(message);
       }
-      
+
       if (!tokenInfo?.isValid) {
         console.log("No valid token found");
         return null;

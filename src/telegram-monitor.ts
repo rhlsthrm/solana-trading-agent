@@ -1,11 +1,11 @@
 // telegram-monitor.ts:
 import "dotenv/config";
-import { AgentRuntime } from "@ai16z/eliza";
+import { AgentRuntime } from "@elizaos/core";
 import { createTelegramMonitorService } from "./services/TelegramMonitorService";
-import { ModelProviderName } from "@ai16z/eliza";
+import { ModelProviderName } from "@elizaos/core";
 import { jupiter } from "@goat-sdk/plugin-jupiter";
 import Database from "better-sqlite3";
-import { SqliteDatabaseAdapter } from "@ai16z/adapter-sqlite";
+import { SqliteDatabaseAdapter } from "@elizaos/adapter-sqlite";
 import { degen } from "./characters/degen";
 import { initializeWalletWithConnection } from "./utils/wallet";
 import { createJupiterService } from "./services/JupiterService";

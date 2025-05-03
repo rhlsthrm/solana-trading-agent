@@ -70,6 +70,13 @@ export interface SolanaWalletClient extends WalletClient {
     transaction: SolanaTransaction
   ) => Promise<SolanaTransactionResult>;
   read: (request: SolanaReadRequest) => Promise<SolanaReadResult>;
+  // Additional properties used in the application
+  publicKey?: any;
+  keypair?: {
+    publicKey: any;
+  };
+  address?: string;
+  [key: string]: any; // Index signature to allow string indexing
 }
 
 export interface QuoteResponse {

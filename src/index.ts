@@ -113,7 +113,7 @@ async function main() {
                 SELECT symbol FROM tokens WHERE address = ?
               `).get(address);
               
-              if (tokenRecord?.symbol) {
+              if (tokenRecord && typeof tokenRecord === 'object' && 'symbol' in tokenRecord) {
                 tokenCache[address] = { symbol: tokenRecord.symbol };
               } else {
                 // If not in DB, try to get from Jupiter
@@ -265,7 +265,7 @@ async function main() {
         });
       } catch (error) {
         console.error("Error rendering dashboard:", error);
-        res.status(500).send(`Error: ${error.message}`);
+        res.status(500).send(`Error: ${(error as Error).message}`);
       }
     });
 

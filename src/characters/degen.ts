@@ -1,4 +1,4 @@
-import { ModelProviderName } from "@ai16z/eliza";
+import { ModelProviderName } from "@elizaos/core";
 
 export const degen = {
   name: "DegenTraderBot",

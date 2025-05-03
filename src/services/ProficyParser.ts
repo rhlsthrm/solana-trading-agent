@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { generateObject, ModelClass, IAgentRuntime } from "@ai16z/eliza";
+import { generateObject, ModelClass, IAgentRuntime } from "@elizaos/core";
 
 // Schema for Proficy response
 export const ProficyResponseSchema = z.object({

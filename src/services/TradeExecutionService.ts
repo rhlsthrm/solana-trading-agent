@@ -1,4 +1,4 @@
-import { generateObject, ModelClass, IAgentRuntime } from "@ai16z/eliza";
+import { generateObject, ModelClass, IAgentRuntime } from "@elizaos/core";
 import { Database } from "better-sqlite3";
 import { z } from "zod";
 import { JupiterService } from "./JupiterService";

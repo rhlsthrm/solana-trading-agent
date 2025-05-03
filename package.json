@@ -10,8 +10,8 @@
     "position:monitor": "tsx src/position-monitor.ts"
   },
   "dependencies": {
-    "@ai16z/adapter-sqlite": "^0.1.6",
-    "@ai16z/eliza": "0.1.6",
+    "@elizaos/adapter-sqlite": "^0.1.9",
+    "@elizaos/core": "^0.1.9",
     "@goat-sdk/core": "^0.4.3",
     "@goat-sdk/plugin-jupiter": "^0.2.4",
     "@goat-sdk/wallet-solana": "^0.1.9",
@@ -24,6 +24,7 @@
     "express": "^5.1.0",
     "input": "^1.0.1",
     "morgan": "^1.10.0",
+    "sharp": "^0.34.1",
     "telegram": "^2.26.8",
     "uuid": "^11.0.3",
     "zod": "3.23.8"
@@ -42,5 +43,13 @@
     "ts-node": "^10.9.2",
     "tsx": "^4.7.1",
     "typescript": "^5.7.2"
+  },
+  "pnpm": {
+    "ignoredBuiltDependencies": [
+      "better-sqlite3"
+    ],
+    "onlyBuiltDependencies": [
+      "better-sqlite3"
+    ]
   }
 }
