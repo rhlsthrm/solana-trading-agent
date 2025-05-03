@@ -2,6 +2,7 @@
 import Database from "better-sqlite3";
 import { JupiterService } from "./JupiterService";
 import { SolanaWalletClient } from "../types/trade";
+import { randomUUID } from "../utils/uuid";
 
 export interface Position {
   id: string;
@@ -60,7 +61,7 @@ export class PositionManager {
     // Save the exact amount from the blockchain/Jupiter
     // No need to manipulate it as we'll handle conversion in the UI
     const position: Position = {
-      id: Math.random().toString(36).substring(7),
+      id: randomUUID(),
       tokenAddress: params.tokenAddress,
       amount: params.amount,
       entryPrice: params.entryPrice,
@@ -264,7 +265,7 @@ export class PositionManager {
           `
           )
           .run(
-            crypto.randomUUID(),
+            randomUUID(),
             position.tokenAddress,
             position.amount,
             position.entryPrice,

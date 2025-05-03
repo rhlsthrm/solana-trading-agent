@@ -9,7 +9,7 @@ import { JupiterService } from "./JupiterService";
 import { TradeExecutionService } from "./TradeExecutionService";
 import { ProficyService } from "./ProficyService";
 import { SentimentAnalysisService } from "./SentimentAnalysisService";
-import { generateId } from "../utils/uuid";
+import { randomUUID } from "../utils/uuid";
 
 export const SignalSchema = z.object({
   isTradeSignal: z.boolean(),
@@ -253,7 +253,7 @@ export class TelegramMonitorService {
 
       // 3. Create enhanced signal
       return {
-        id: generateId(),
+        id: randomUUID(),
         tokenAddress: tokenInfo.address,
         type: "BUY",
         confidence: sentiment.confidence || 70,

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { JupiterService } from "./JupiterService";
 import { SolanaWalletClient } from "../types/trade";
 import { PositionManager } from "./PositionManager";
+import { randomUUID } from "../utils/uuid";
 
 const PositionSizeSchema = z.object({
   lamports: z.number(),
@@ -89,7 +90,7 @@ export class TradeExecutionService {
         `
           )
           .run(
-            crypto.randomUUID(),
+            randomUUID(),
             signal.tokenAddress,
             positionSize,
             signal.price,
