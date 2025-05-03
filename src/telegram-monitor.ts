@@ -13,6 +13,7 @@ import { createTradeExecutionService } from "./services/TradeExecutionService";
 import { createProficyService } from "./services/ProficyService";
 import { createSentimentAnalysisService } from "./services/SentimentAnalysisService";
 import { createPositionManager } from "./services/PositionManager";
+import { elizaSchema, telegramSchema, tradingSchema } from "./utils/db-schema";
 
 async function initializeDatabase(): Promise<Database.Database> {
   // Initialize SQLite database with schema
@@ -20,107 +21,12 @@ async function initializeDatabase(): Promise<Database.Database> {
     verbose: process.env.DEBUG ? console.log : undefined,
   });
 
-  // Create required tables for ELIZA
-  const elizaSchema = `
-    CREATE TABLE IF NOT EXISTS accounts (
-      id TEXT PRIMARY KEY,
-      "createdAt" INTEGER DEFAULT (unixepoch()),
-      "name" TEXT,
-      "username" TEXT,
-      "email" TEXT,
-      "avatarUrl" TEXT,
-      "details" TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS rooms (
-      id TEXT PRIMARY KEY,
-      "createdAt" INTEGER DEFAULT (unixepoch())
-    );
-
-    CREATE TABLE IF NOT EXISTS memories (
-      id TEXT PRIMARY KEY,
-      type TEXT NOT NULL,
-      content TEXT NOT NULL,
-      embedding BLOB,
-      userId TEXT NOT NULL,
-      roomId TEXT NOT NULL,
-      agentId TEXT NOT NULL,
-      "unique" INTEGER DEFAULT 0,
-      createdAt INTEGER NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS participants (
-      id TEXT PRIMARY KEY,
-      "createdAt" INTEGER DEFAULT (unixepoch()),
-      "userId" TEXT,
-      "roomId" TEXT,
-      "userState" TEXT,
-      "last_message_read" TEXT,
-      FOREIGN KEY ("userId") REFERENCES accounts(id),
-      FOREIGN KEY ("roomId") REFERENCES rooms(id)
-    );
-  `;
-
-  // Create trading-specific tables
-  const tradingSchema = `
-    CREATE TABLE IF NOT EXISTS signals (
-      id TEXT PRIMARY KEY,
-      source TEXT,
-      token_address TEXT,
-      signal_type TEXT,
-      price NUMERIC,
-      timestamp INTEGER DEFAULT (unixepoch()),
-      processed INTEGER DEFAULT 0,
-      risk_level TEXT,
-      confidence NUMERIC,
-      timeframe TEXT,
-      stop_loss NUMERIC,
-      take_profit NUMERIC,
-      liquidity NUMERIC,
-      volume_24h NUMERIC
-    );
-
-    CREATE TABLE IF NOT EXISTS trades (
-      id TEXT PRIMARY KEY,
-      token_address TEXT,
-      entry_price NUMERIC,
-      exit_price NUMERIC,
-      position_size NUMERIC,
-      signal_id TEXT,
-      entry_time INTEGER,
-      exit_time INTEGER,
-      profit_loss NUMERIC,
-      status TEXT,
-      tx_id TEXT,
-      FOREIGN KEY (signal_id) REFERENCES signals(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS tokens (
-      address TEXT PRIMARY KEY,
-      symbol TEXT,
-      liquidity NUMERIC,
-      volume_24h NUMERIC,
-      last_updated INTEGER DEFAULT (unixepoch())
-    );
-
-    CREATE TABLE IF NOT EXISTS analysis (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      token_address TEXT NOT NULL,
-      timeframe TEXT NOT NULL,
-      rsi NUMERIC,
-      short_ma NUMERIC,
-      long_ma NUMERIC,
-      volume_ma NUMERIC,
-      timestamp INTEGER DEFAULT (unixepoch()),
-      FOREIGN KEY (token_address) REFERENCES tokens(address)
-    );
-  `;
-
   // Execute schema creation in a transaction
   sqliteDb.exec("BEGIN TRANSACTION;");
   try {
     sqliteDb.exec(elizaSchema);
-    sqliteDb.exec(tradingSchema);
+    sqliteDb.exec(tradingSchema); // Use shared schema for common tables
+    sqliteDb.exec(telegramSchema); // Add telegram-specific tables
     sqliteDb.exec("COMMIT;");
     console.log("Database schema created successfully");
   } catch (error) {

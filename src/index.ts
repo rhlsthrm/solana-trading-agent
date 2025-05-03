@@ -11,6 +11,7 @@ import { createPositionManager, Position } from "./services/PositionManager";
 import { Connection } from "@solana/web3.js";
 import { SolanaWalletClient } from "./types/trade";
 import { formatCurrency, formatTokenAmount, normalizeTokenAmount } from "./utils/token";
+import { initializeDatabase as initDb } from "./utils/db-schema";
 
 // Get the directory name using ESM pattern
 const __filename = fileURLToPath(import.meta.url);
@@ -24,14 +25,15 @@ let walletClient: SolanaWalletClient;
 let connection: Connection;
 let tokenCache: Record<string, any> = {};
 
-/**
- * Initialize the database connection
- */
 async function initializeDatabase(): Promise<Database.Database> {
   console.log("Connecting to database...");
   const sqliteDb = new Database("./trading.db", {
     verbose: process.env.DEBUG ? console.log : undefined,
   });
+
+  // Initialize database schema
+  initDb(sqliteDb);
+
   return sqliteDb;
 }
 

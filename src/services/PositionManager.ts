@@ -31,24 +31,9 @@ export class PositionManager {
   }
 
   private initializeDatabase() {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS positions (
-        id TEXT PRIMARY KEY,
-        token_address TEXT NOT NULL,
-        amount NUMERIC NOT NULL,
-        entry_price NUMERIC NOT NULL,
-        current_price NUMERIC,
-        last_updated INTEGER NOT NULL,
-        profit_loss NUMERIC,
-        status TEXT CHECK (status IN ('ACTIVE', 'CLOSED', 'LIQUIDATED'))
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_positions_token_address 
-        ON positions(token_address);
-      
-      CREATE INDEX IF NOT EXISTS idx_positions_status 
-        ON positions(status);
-    `);
+    // Import schema from the centralized location
+    const { tradingSchema } = require('../utils/db-schema');
+    this.db.exec(tradingSchema);
   }
 
   async createPosition(params: {

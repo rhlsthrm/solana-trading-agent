@@ -7,6 +7,7 @@ import {
   createPositionManager,
   PositionManager,
 } from "./services/PositionManager";
+import { initializeDatabase as initDb } from "./utils/db-schema";
 
 // Default check interval (in milliseconds)
 const DEFAULT_CHECK_INTERVAL = 2 * 60 * 1000; // 2 minutes - balanced frequency for resources
@@ -16,6 +17,9 @@ async function initializeDatabase(): Promise<Database.Database> {
   const sqliteDb = new Database("./trading.db", {
     verbose: process.env.DEBUG ? console.log : undefined,
   });
+
+  // Initialize database schema
+  initDb(sqliteDb);
 
   return sqliteDb;
 }
