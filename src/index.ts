@@ -59,14 +59,8 @@ async function main() {
     walletClient = walletData.walletClient;
     connection = walletData.connection;
     
-    // Debug the wallet structure to understand its properties
-    console.log("Wallet initialized, structure:", {
-      hasPublicKey: !!walletClient.publicKey,
-      publicKeyType: walletClient.publicKey ? typeof walletClient.publicKey : 'undefined',
-      hasKeypair: !!walletClient.keypair,
-      hasAddress: !!walletClient.address,
-      walletKeys: Object.keys(walletClient)
-    });
+    // Only log minimal wallet initialization info
+    console.log("Wallet initialized successfully");
     
     // Create Jupiter service
     jupiterService = createJupiterService();
@@ -181,7 +175,6 @@ async function main() {
           }
           // Method 3: From address string
           else if (walletClient.address) {
-            console.log("Using wallet address instead of public key:", walletClient.address);
             // We don't have a direct public key, so we'll just show the address in the UI
             solBalanceInSol = 0; // Can't fetch balance without PublicKey object
           }
@@ -192,7 +185,6 @@ async function main() {
               const value = walletClient[key];
               if (value && typeof value === 'object' && value.toBase58) {
                 publicKey = value;
-                console.log(`Found public key in property: ${key}`);
                 break;
               }
             }
@@ -202,9 +194,6 @@ async function main() {
           if (publicKey) {
             solBalance = await connection.getBalance(publicKey);
             solBalanceInSol = solBalance / 10**9; // Convert lamports to SOL
-            console.log(`Found SOL balance: ${solBalanceInSol} SOL`);
-          } else {
-            console.warn("Could not determine wallet public key for balance check");
           }
         } catch (error) {
           console.error("Error fetching SOL balance:", error);
@@ -230,11 +219,6 @@ async function main() {
           profitLoss: metrics.profitLoss / 1000000,
           profitLossPercentage: metrics.profitLossPercentage
         };
-        
-        console.log("Adjusted metrics for display:", {
-          raw: metrics,
-          adjusted: adjustedMetrics
-        });
         
         // Calculate total portfolio value (positions + SOL)
         const totalValueWithSol = adjustedMetrics.totalValue + solValueUsd;

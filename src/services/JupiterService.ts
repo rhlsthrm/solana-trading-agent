@@ -7,6 +7,14 @@ export class JupiterService {
   private readonly TOKENS_API = "https://token.jup.ag/all";
   private readonly PRICE_API = "https://lite-api.jup.ag/price/v2";
   private readonly WRAPPED_SOL = "So11111111111111111111111111111111111111112";
+  
+  // Price cache to reduce API calls
+  private priceCache: Map<string, { price: number, timestamp: number }> = new Map();
+  private readonly PRICE_CACHE_TTL = 2 * 60 * 1000; // 2 minutes cache validity
+  
+  // Token info cache
+  private tokenInfoCache: Map<string, { info: TokenInfo, timestamp: number }> = new Map();
+  private readonly TOKEN_INFO_CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache validity
 
   private async fetchWithRetry(
     url: string,
@@ -146,7 +154,14 @@ export class JupiterService {
 
   public async getTokenInfo(addressOrPool: string): Promise<TokenInfo | null> {
     try {
-      console.log(`Getting token info for ${addressOrPool}`);
+      // Check cache first
+      const cachedData = this.tokenInfoCache.get(addressOrPool);
+      const now = Date.now();
+      
+      if (cachedData && (now - cachedData.timestamp < this.TOKEN_INFO_CACHE_TTL)) {
+        // No logging for cache hit - reduces spam
+        return cachedData.info;
+      }
       
       // Try to get the token from Jupiter token list first
       try {
@@ -167,7 +182,7 @@ export class JupiterService {
             // Use the price we received, or fall back to token data price or null
             const finalPrice = currentPrice !== null ? currentPrice : (tokenData.price || null);
             
-            return {
+            const tokenInfo = {
               address: tokenData.address,
               symbol: tokenData.symbol || "UNKNOWN",
               name: tokenData.name || tokenData.symbol || "Unknown Token",
@@ -179,6 +194,11 @@ export class JupiterService {
               holders: tokenData.holders || 0,
               isValid: finalPrice !== null, // Only valid if price is available
             };
+            
+            // Update cache
+            this.tokenInfoCache.set(addressOrPool, { info: tokenInfo, timestamp: now });
+            
+            return tokenInfo;
           }
         }
       } catch (error) {
@@ -186,16 +206,12 @@ export class JupiterService {
         console.warn(`Error fetching from token list API: ${tokenApiError.message}`);
       }
       
-      // If we can't get token data from Jupiter's token list, create minimal token info
-      // using just the price
-      console.log(`Creating minimal token info for ${addressOrPool}`);
-      
       // Try to get the current price
       const currentPrice = await this.getCurrentPrice(addressOrPool);
       
       if (currentPrice !== null) {
         // Create minimal token info with the current price
-        return {
+        const tokenInfo = {
           address: addressOrPool,
           symbol: `TOKEN_${addressOrPool.substring(0, 5)}`, // Generate a placeholder symbol
           name: `Token ${addressOrPool.substring(0, 8)}`,  // Generate a placeholder name
@@ -207,11 +223,16 @@ export class JupiterService {
           holders: 0,
           isValid: true,
         };
+        
+        // Update cache
+        this.tokenInfoCache.set(addressOrPool, { info: tokenInfo, timestamp: now });
+        
+        return tokenInfo;
       }
       
       // If we couldn't get a price, return minimal info with isValid: false
       console.warn(`Could not get price for ${addressOrPool} - returning invalid token info`);
-      return {
+      const invalidTokenInfo = {
         address: addressOrPool,
         symbol: `TOKEN_${addressOrPool.substring(0, 5)}`,
         name: `Token ${addressOrPool.substring(0, 8)}`,
@@ -223,6 +244,13 @@ export class JupiterService {
         holders: 0,
         isValid: false,
       };
+      
+      // We still cache invalid results but with a shorter TTL
+      // We'll set the timestamp to be almost expired
+      const shorterTtl = now - (this.TOKEN_INFO_CACHE_TTL - 60000); // Just 1 minute validity
+      this.tokenInfoCache.set(addressOrPool, { info: invalidTokenInfo, timestamp: shorterTtl });
+      
+      return invalidTokenInfo;
     } catch (error) {
       console.error("Error getting token info:", error);
       
@@ -247,21 +275,32 @@ export class JupiterService {
    */
   public async getCurrentPrice(tokenAddress: string): Promise<number | null> {
     try {
-      // Add cache-busting timestamp
-      const timestamp = Date.now();
-      const url = `${this.PRICE_API}?ids=${tokenAddress}&_t=${timestamp}`;
+      // Check cache first
+      const cachedData = this.priceCache.get(tokenAddress);
+      const now = Date.now();
       
-      console.log(`Getting current price from Jupiter: ${url}`);
+      if (cachedData && (now - cachedData.timestamp < this.PRICE_CACHE_TTL)) {
+        // No logging for cached prices - reduces console spam
+        return cachedData.price;
+      }
+      
+      // Cache miss or expired - fetch from API
+      const url = `${this.PRICE_API}?ids=${tokenAddress}&_t=${now}`; // Cache-busting timestamp
+      
+      // No logging for API requests - reduces noise
       const response = await this.fetchWithRetry(url);
       
       // Check if we got a valid response
       if (response?.data?.[tokenAddress]?.price) {
         const price = parseFloat(response.data[tokenAddress].price);
-        console.log(`📊 Current price for ${tokenAddress}: $${price}`);
+        
+        // Update cache
+        this.priceCache.set(tokenAddress, { price, timestamp: now });
+        
         return price;
       } 
       
-      // No price data available
+      // Only log warnings for missing data
       console.warn(`No price data available for ${tokenAddress}`);
       return null;
     } catch (error) {

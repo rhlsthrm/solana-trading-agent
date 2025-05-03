@@ -9,7 +9,7 @@ import {
 } from "./services/PositionManager";
 
 // Default check interval (in milliseconds)
-const DEFAULT_CHECK_INTERVAL = 1 * 60 * 1000; // 1 minute - more frequent price checks
+const DEFAULT_CHECK_INTERVAL = 2 * 60 * 1000; // 2 minutes - balanced frequency for resources
 
 async function initializeDatabase(): Promise<Database.Database> {
   // Initialize SQLite database
@@ -44,24 +44,15 @@ async function monitorPositions() {
       walletClient
     );
 
-    // Initial check
-    console.log(
-      "Checking positions for stop-loss and take-profit conditions..."
-    );
+    // Initial check (no logging)
     await runCheck(positionManager);
 
-    // Set up interval for periodic checking
+    // Set up interval for periodic checking (no per-check logging)
     setInterval(async () => {
-      console.log("\n--- Position Monitor Check ---");
-      console.log(new Date().toISOString());
       await runCheck(positionManager);
     }, checkInterval);
 
-    console.log(
-      `Position monitor running. Will check every ${
-        checkInterval / 1000
-      } seconds.`
-    );
+    console.log(`Position monitor running. Interval: ${checkInterval / 1000}s`);
 
     // Keep the process running
     await new Promise(() => {});
@@ -73,72 +64,34 @@ async function monitorPositions() {
 
 async function runCheck(positionManager: PositionManager) {
   try {
-    // Get portfolio metrics before update
-    const beforeMetrics = await positionManager.getPortfolioMetrics();
-    console.log("Portfolio before update:", {
-      totalValue: beforeMetrics.totalValue.toFixed(4),
-      profitLoss: beforeMetrics.profitLoss.toFixed(4),
-      profitLossPercentage: beforeMetrics.profitLossPercentage.toFixed(2) + "%",
-    });
-
     // Get active positions
     const activePositions = await positionManager.getAllActivePositions();
-    console.log(`Found ${activePositions.length} active positions`);
-
+    
     if (activePositions.length === 0) {
-      console.log("No active positions to monitor.");
-      return;
+      return; // No logging needed for no positions
     }
 
     // Update prices and check for stop-loss/take-profit conditions
     await positionManager.updatePricesAndProfitLoss();
 
-    // Get portfolio metrics after update
-    const afterMetrics = await positionManager.getPortfolioMetrics();
-    console.log("Portfolio after update:", {
-      totalValue: afterMetrics.totalValue.toFixed(4),
-      profitLoss: afterMetrics.profitLoss.toFixed(4),
-      profitLossPercentage: afterMetrics.profitLossPercentage.toFixed(2) + "%",
-    });
-
     // Re-check active positions to see what's left after possible auto-closes
     const remainingPositions = await positionManager.getAllActivePositions();
-
-    // Log details of each remaining position
+    
+    // Log only positions that are approaching thresholds
     for (const position of remainingPositions) {
+      if (!position.profitLoss || !position.currentPrice) continue;
+      
       const entryValue = position.amount * position.entryPrice;
-      const currentValue = position.currentPrice
-        ? position.amount * position.currentPrice
-        : 0;
-      const profitLoss = position.profitLoss || 0;
-      const profitLossPercentage =
-        entryValue > 0 ? (profitLoss / entryValue) * 100 : 0;
+      const profitLoss = position.profitLoss;
+      const profitLossPercentage = entryValue > 0 ? (profitLoss / entryValue) * 100 : 0;
 
-      console.log(`Position ${position.id} (${position.tokenAddress}):`);
-      console.log(`  Amount: ${position.amount}`);
-      console.log(`  Entry Price: ${position.entryPrice}`);
-      console.log(`  Current Price: ${position.currentPrice}`);
-      console.log(
-        `  P&L: ${profitLoss.toFixed(4)} (${profitLossPercentage.toFixed(2)}%)`
-      );
-
-      // Warn if position is approaching stop-loss or take-profit
+      // Only log warnings for positions approaching thresholds
       if (profitLossPercentage < -10 && profitLossPercentage > -15) {
-        console.log(
-          `  ⚠️ WARNING: Position approaching stop-loss (${profitLossPercentage.toFixed(
-            2
-          )}%)`
-        );
+        console.log(`⚠️ Position ${position.id.substring(0,8)} approaching stop-loss (${profitLossPercentage.toFixed(2)}%)`);
       } else if (profitLossPercentage > 25 && profitLossPercentage < 30) {
-        console.log(
-          `  ⚠️ WARNING: Position approaching take-profit (${profitLossPercentage.toFixed(
-            2
-          )}%)`
-        );
+        console.log(`⚠️ Position ${position.id.substring(0,8)} approaching take-profit (${profitLossPercentage.toFixed(2)}%)`);
       }
     }
-
-    console.log(`Monitoring ${remainingPositions.length} active positions`);
   } catch (error) {
     console.error("Error in position check:", error);
   }

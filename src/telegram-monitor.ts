@@ -17,7 +17,7 @@ import { createPositionManager } from "./services/PositionManager";
 async function initializeDatabase(): Promise<Database.Database> {
   // Initialize SQLite database with schema
   const sqliteDb = new Database("./trading.db", {
-    verbose: console.log,
+    verbose: process.env.DEBUG ? console.log : undefined,
   });
 
   // Create required tables for ELIZA
@@ -205,8 +205,7 @@ async function main() {
       sentimentService: sentimentService,
     });
 
-    console.log("Starting Telegram monitor...");
-
+    // Start the Telegram monitor
     await telegramMonitor.start();
 
     await new Promise(() => {});

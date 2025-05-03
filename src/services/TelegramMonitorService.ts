@@ -66,7 +66,6 @@ export class TelegramMonitorService {
       await this.setupMessageHandler();
       await this.verifyChannelAccess();
       this.startHealthCheck();
-      console.log("Monitoring channels:", this.channelIds);
     } catch (error) {
       console.error("Error starting Telegram service:", error);
       throw error;
@@ -74,26 +73,20 @@ export class TelegramMonitorService {
   }
 
   private async reconnect() {
-    console.log("🔄 Attempting to reconnect...");
+    console.log("🔄 Reconnecting to Telegram...");
     try {
       await this.client.disconnect();
-      console.log("Disconnected old client");
-
+      
       // Small delay to ensure clean disconnect
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
       await this.client.connect();
-      console.log("Connected new client");
-
       await this.setupMessageHandler();
-      console.log("Set up new message handler");
-
       await this.verifyChannelAccess();
-      console.log("Verified channel access");
 
       this.isConnected = true;
       this.lastMessageTime = Date.now();
-      console.log("✅ Successfully reconnected!");
+      console.log("✅ Reconnected successfully");
     } catch (error) {
       console.error("❌ Reconnection failed:", error);
       this.isConnected = false;
@@ -106,11 +99,11 @@ export class TelegramMonitorService {
   private startHealthCheck() {
     setInterval(async () => {
       const timeSinceLastMessage = Date.now() - this.lastMessageTime;
-      console.log(
-        `⏲️ Time since last message: ${Math.round(
-          timeSinceLastMessage / 1000
-        )}s`
-      );
+      
+      // Only log if no message for over a minute
+      if (timeSinceLastMessage > 60 * 1000) {
+        console.log(`⏲️ No messages for ${Math.round(timeSinceLastMessage / 1000)}s`);
+      }
 
       // Reduce the threshold to 2 minutes
       if (timeSinceLastMessage > 2 * 60 * 1000) {
@@ -118,17 +111,15 @@ export class TelegramMonitorService {
         try {
           const isAlive = await this.testConnection();
           if (!isAlive) {
-            console.log("❌ Connection test failed, forcing reconnect...");
+            console.log("❌ Connection test failed, reconnecting...");
             await this.reconnect();
-          } else {
-            console.log("✅ Connection test passed");
           }
         } catch (error) {
           console.error("❌ Health check failed:", error);
           await this.reconnect();
         }
       }
-    }, 30000); // Check every 30 seconds instead of every minute
+    }, 30000); // Check every 30 seconds
   }
 
   private async testConnection(): Promise<boolean> {
@@ -156,41 +147,34 @@ export class TelegramMonitorService {
 
   private async setupMessageHandler() {
     this.client.addEventHandler(async (event: any) => {
-      console.log("🔍 Raw event received:", event?.message?.text);
       try {
         const message = event.message;
+        if (!message?.text) return; // Skip if no text in message
+        
         const chat = await message.getChat();
-
-        console.log("📝 Got chat:", chat.username);
 
         // Update last message time for health check
         this.lastMessageTime = Date.now();
         this.isConnected = true;
 
+        // Only process messages from monitored channels
         if (!this.channelIds.includes(chat.username)) {
-          console.log(
-            `Skipping message from non-monitored channel: ${chat.username}`
-          ); // Add this
           return;
         }
 
         try {
           const signal = await this.processMessage(message.text);
-          console.log("signal", signal);
           if (signal?.isTradeSignal) {
-            console.log("🚨 Trading Signal Detected!", {
+            console.log("🚨 Trading Signal Detected:", {
               token: signal.tokenAddress,
-              type: signal.type,
-              price: signal.price,
-              liquidity: signal.liquidity,
-              volume: signal.volume24h,
+              type: signal.type
             });
 
             const isValid = await this.validateSignal(signal);
             if (isValid) {
               await this.processValidSignal(signal);
             } else {
-              console.log("❌ Signal rejected - failed validation checks");
+              console.log("❌ Signal rejected - failed validation");
             }
           }
         } catch (error) {
@@ -203,10 +187,10 @@ export class TelegramMonitorService {
       }
     }, new NewMessage({}));
 
-    // Add heartbeat to verify handler is still running
+    // Add heartbeat to verify handler is still running (less frequent)
     setInterval(() => {
-      console.log("🏓 Message handler heartbeat");
-    }, 60000); // Log every minute
+      // No console logging for regular heartbeat
+    }, 60000);
   }
 
   private readonly SOLANA_ADDRESS_REGEX =
@@ -223,7 +207,6 @@ export class TelegramMonitorService {
       if (addressMatches.length > 0) {
         // Use the first address found in the message
         tokenAddress = addressMatches[0][0];
-        console.log(`Found token address directly in message: ${tokenAddress}`);
       }
 
       // If we found a token address in the message, use it with Proficy for more info
@@ -236,7 +219,6 @@ export class TelegramMonitorService {
       }
 
       if (!tokenInfo?.isValid) {
-        console.log("No valid token found");
         return null;
       }
 
@@ -244,10 +226,8 @@ export class TelegramMonitorService {
       const sentiment = await this.config.sentimentService.analyzeSentiment(
         message
       );
-      console.log("sentiment", sentiment);
 
       if (!sentiment) {
-        console.log("Failed to analyze sentiment");
         return null;
       }
 
@@ -272,23 +252,23 @@ export class TelegramMonitorService {
     for (const channelId of this.channelIds) {
       try {
         await this.client.getMessages(channelId, { limit: 1 });
-        console.log(`✅ Successfully connected to ${channelId}`);
       } catch (error) {
         console.error(`❌ Error accessing ${channelId}:`, error);
         throw error;
       }
     }
+    console.log(`✅ Connected to ${this.channelIds.length} channels`);
   }
 
   private async validateSignal(signal: EnhancedSignal): Promise<boolean> {
     try {
       if (signal.liquidity && signal.liquidity < this.minLiquidity) {
-        console.log(`❌ Insufficient liquidity: $${signal.liquidity}`);
+        // Log reason for signal rejection but less verbose
         return false;
       }
 
       if (signal.volume24h && signal.volume24h < this.minVolume) {
-        console.log(`❌ Insufficient 24h volume: $${signal.volume24h}`);
+        // Log reason for signal rejection but less verbose
         return false;
       }
 
@@ -304,7 +284,7 @@ export class TelegramMonitorService {
         .get(signal.tokenAddress);
 
       if (recentTrade) {
-        console.log("❌ Already traded this token in the last 24h");
+        // Already traded recently
         return false;
       }
 
@@ -345,16 +325,15 @@ export class TelegramMonitorService {
   }
 
   private async processValidSignal(signal: EnhancedSignal) {
-    console.log("✅ Valid signal detected!");
-    console.log(JSON.stringify(signal, null, 2));
+    console.log("✅ Valid signal detected for token:", signal.tokenAddress);
 
     const success = await this.config.tradeExecutionService.executeTrade(
       signal
     );
     if (success) {
-      console.log("🎯 Trade executed successfully");
+      console.log("🎯 Trade executed successfully for", signal.tokenAddress);
     } else {
-      console.log("❌ Trade execution failed");
+      console.log("❌ Trade execution failed for", signal.tokenAddress);
     }
   }
 }

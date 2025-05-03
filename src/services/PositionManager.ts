@@ -100,73 +100,81 @@ export class PositionManager {
     return position;
   }
 
+  // Prepared statement for getting a position by ID
+  private getPositionStmt = this.db.prepare(`
+    SELECT 
+      id,
+      token_address as tokenAddress,
+      amount,
+      entry_price as entryPrice,
+      current_price as currentPrice,
+      last_updated as lastUpdated,
+      profit_loss as profitLoss,
+      status
+    FROM positions 
+    WHERE id = ?
+  `);
+  
   async getPosition(id: string): Promise<Position | null> {
-    const position = this.db
-      .prepare(
-        `
-      SELECT 
-        id,
-        token_address as tokenAddress,
-        amount,
-        entry_price as entryPrice,
-        current_price as currentPrice,
-        last_updated as lastUpdated,
-        profit_loss as profitLoss,
-        status
-      FROM positions 
-      WHERE id = ?
-    `
-      )
-      .get(id);
-
+    const position = this.getPositionStmt.get(id);
     return (position as Position) || null;
   }
 
+  // Prepared statement for getting a position by token address
+  private getPositionByTokenStmt = this.db.prepare(`
+    SELECT 
+      id,
+      token_address as tokenAddress,
+      amount,
+      entry_price as entryPrice,
+      current_price as currentPrice,
+      last_updated as lastUpdated,
+      profit_loss as profitLoss,
+      status
+    FROM positions 
+    WHERE token_address = ? 
+    AND status = 'ACTIVE'
+  `);
+  
   async getPositionByToken(tokenAddress: string): Promise<Position | null> {
-    const position = this.db
-      .prepare(
-        `
-      SELECT 
-        id,
-        token_address as tokenAddress,
-        amount,
-        entry_price as entryPrice,
-        current_price as currentPrice,
-        last_updated as lastUpdated,
-        profit_loss as profitLoss,
-        status
-      FROM positions 
-      WHERE token_address = ? 
-      AND status = 'ACTIVE'
-    `
-      )
-      .get(tokenAddress);
-
+    const position = this.getPositionByTokenStmt.get(tokenAddress);
     return (position as Position) || null;
   }
 
+  // Prepared statement for getting all active positions
+  private getAllActivePositionsStmt = this.db.prepare(`
+    SELECT 
+      id,
+      token_address as tokenAddress,
+      amount,
+      entry_price as entryPrice,
+      current_price as currentPrice,
+      last_updated as lastUpdated,
+      profit_loss as profitLoss,
+      status
+    FROM positions 
+    WHERE status = 'ACTIVE'
+  `);
+    
   async getAllActivePositions(): Promise<Position[]> {
-    const positions = this.db
-      .prepare(
-        `
-      SELECT 
-        id,
-        token_address as tokenAddress,
-        amount,
-        entry_price as entryPrice,
-        current_price as currentPrice,
-        last_updated as lastUpdated,
-        profit_loss as profitLoss,
-        status
-      FROM positions 
-      WHERE status = 'ACTIVE'
-    `
-      )
-      .all();
+    // Execute the prepared statement
+    const positions = this.getAllActivePositionsStmt.all();
 
     return positions as Position[];
   }
 
+  // Prepare statements once during initialization for better performance
+  private updatePositionStmt = this.db.prepare(`
+    UPDATE positions 
+    SET 
+      amount = ?,
+      current_price = ?,
+      last_updated = ?,
+      profit_loss = ?,
+      status = ?
+    WHERE id = ?
+  `);
+  
   async updatePosition(
     id: string,
     updates: Partial<Omit<Position, "id">>
@@ -176,18 +184,7 @@ export class PositionManager {
 
     const updatedPosition = { ...position, ...updates };
 
-    const stmt = this.db.prepare(`
-      UPDATE positions 
-      SET 
-        amount = ?,
-        current_price = ?,
-        last_updated = ?,
-        profit_loss = ?,
-        status = ?
-      WHERE id = ?
-    `);
-
-    stmt.run(
+    this.updatePositionStmt.run(
       updatedPosition.amount,
       updatedPosition.currentPrice,
       Date.now(),
@@ -302,88 +299,119 @@ export class PositionManager {
   async updatePricesAndProfitLoss(): Promise<void> {
     const activePositions = await this.getAllActivePositions();
 
+    // Categorize positions into high-priority and regular updates
+    const highPriorityPositions: Position[] = [];
+    const regularPositions: Position[] = [];
+    
+    // First pass - categorize positions without making API calls
     for (const position of activePositions) {
       try {
-        // Get the latest price directly from the price API
-        const currentPrice = await this.jupiterService.getCurrentPrice(position.tokenAddress);
-        
-        if (currentPrice === null) {
-          console.warn(`⚠️ Could not get current price for ${position.tokenAddress}, skipping update`);
-          continue;
-        }
-        
-        // Try to get the full token info for additional data
-        let tokenInfo = null;
-        try {
-          tokenInfo = await this.jupiterService.getTokenInfo(position.tokenAddress);
-        } catch (error) {
-          console.warn(`Error getting token info for ${position.tokenAddress}, using defaults`);
-        }
-        
-        // Get the number of decimal places for this token (default to 6)
-        const tokenDecimals = (tokenInfo && tokenInfo.decimals) ? tokenInfo.decimals : 6;
-        
-        // Calculate profit/loss using the amount without decimal normalization
-        const currentValue = position.amount * currentPrice;
-        const entryValue = position.amount * position.entryPrice;
-        const profitLoss = currentValue - entryValue;
-        
-        // Calculate percentage based on entry value to avoid division by zero
-        const profitLossPercentage = entryValue > 0 ? (profitLoss / entryValue) * 100 : 0;
-
-        console.log(`Position update for ${position.tokenAddress}:`, {
-          amount: position.amount,
-          entryPrice: position.entryPrice,
-          currentPrice: currentPrice,
-          entryValue,
-          currentValue,
-          profitLoss,
-          profitLossPercentage: `${profitLossPercentage.toFixed(2)}%`
-        });
-
-        // Log price change
-        const priceChanged = position.currentPrice !== currentPrice;
-        if (priceChanged) {
-          console.log(`🔄 Price updated for ${position.tokenAddress} from $${position.currentPrice} to $${currentPrice}`);
+        // Check if position needs urgent attention based on last known values
+        if (position.currentPrice && position.entryPrice) {
+          const lastKnownProfitLoss = position.profitLoss || 0;
+          const entryValue = position.amount * position.entryPrice;
+          const profitLossPercentage = entryValue > 0 ? (lastKnownProfitLoss / entryValue) * 100 : 0;
+          
+          // Positions approaching stop-loss or take-profit thresholds get priority
+          const approachingThreshold = 
+            (profitLossPercentage < -10 && profitLossPercentage > -15) || // Approaching stop-loss
+            (profitLossPercentage > 25 && profitLossPercentage < 30);     // Approaching take-profit
+            
+          if (approachingThreshold) {
+            highPriorityPositions.push(position);
+          } else {
+            regularPositions.push(position);
+          }
         } else {
-          console.log(`ℹ️ Price unchanged for ${position.tokenAddress}: $${currentPrice}`);
-        }
-        
-        // Update position
-        await this.updatePosition(position.id, {
-          currentPrice: currentPrice,
-          profitLoss,
-          lastUpdated: Date.now(),
-        });
-
-        // Check for stop loss (example: -15%)
-        if (profitLossPercentage < -15) {
-          console.log(`⚠️ Stop loss triggered for position ${position.id} (${profitLossPercentage.toFixed(2)}%)`);
-          
-          // Execute stop loss by closing the position
-          const success = await this.closePosition(position.id);
-          if (success) {
-            console.log(`✅ Stop loss executed for position ${position.id} at ${profitLossPercentage.toFixed(2)}%`);
-          } else {
-            console.error(`❌ Failed to execute stop loss for position ${position.id}`);
-          }
-        }
-
-        // Check for take profit (example: +30%)
-        if (profitLossPercentage > 30) {
-          console.log(`🎯 Take profit triggered for position ${position.id} (${profitLossPercentage.toFixed(2)}%)`);
-          
-          // Execute take profit by closing the position
-          const success = await this.closePosition(position.id);
-          if (success) {
-            console.log(`✅ Take profit executed for position ${position.id} at ${profitLossPercentage.toFixed(2)}%`);
-          } else {
-            console.error(`❌ Failed to execute take profit for position ${position.id}`);
-          }
+          // If position doesn't have current price, it needs an update
+          highPriorityPositions.push(position);
         }
       } catch (error) {
-        console.error(`Error updating position ${position.id}:`, error);
+        console.error(`Error categorizing position ${position.id}:`, error);
+        // Put in high-priority on error to ensure it gets checked
+        highPriorityPositions.push(position);
       }
+    }
+    
+    // No need to log position counts
+    
+    // Process high-priority positions first
+    for (const position of highPriorityPositions) {
+      await this.updatePositionPrice(position);
+    }
+    
+    // Then process regular positions
+    for (const position of regularPositions) {
+      await this.updatePositionPrice(position);
+    }
+  }
+  
+  // Helper method to update a single position
+  private async updatePositionPrice(position: Position): Promise<void> {
+    try {
+      // Get the latest price directly from the price API
+      const currentPrice = await this.jupiterService.getCurrentPrice(position.tokenAddress);
+      
+      if (currentPrice === null) {
+        console.warn(`⚠️ Could not get current price for ${position.tokenAddress}, skipping update`);
+        return;
+      }
+      
+      // Try to get the full token info for additional data
+      let tokenInfo = null;
+      try {
+        tokenInfo = await this.jupiterService.getTokenInfo(position.tokenAddress);
+      } catch (error) {
+        console.warn(`Error getting token info for ${position.tokenAddress}, using defaults`);
+      }
+      
+      // Get the number of decimal places for this token (default to 6)
+      const tokenDecimals = (tokenInfo && tokenInfo.decimals) ? tokenInfo.decimals : 6;
+      
+      // Calculate profit/loss using the amount without decimal normalization
+      const currentValue = position.amount * currentPrice;
+      const entryValue = position.amount * position.entryPrice;
+      const profitLoss = currentValue - entryValue;
+      
+      // Calculate percentage based on entry value to avoid division by zero
+      const profitLossPercentage = entryValue > 0 ? (profitLoss / entryValue) * 100 : 0;
+
+      // No logging for regular price updates
+      
+      // Update position
+      await this.updatePosition(position.id, {
+        currentPrice: currentPrice,
+        profitLoss,
+        lastUpdated: Date.now(),
+      });
+
+      // Check for stop loss (example: -15%)
+      if (profitLossPercentage < -15) {
+        console.log(`⚠️ Stop loss triggered for position ${position.id} (${profitLossPercentage.toFixed(2)}%)`);
+        
+        // Execute stop loss by closing the position
+        const success = await this.closePosition(position.id);
+        if (success) {
+          console.log(`✅ Stop loss executed for position ${position.id} at ${profitLossPercentage.toFixed(2)}%`);
+        } else {
+          console.error(`❌ Failed to execute stop loss for position ${position.id}`);
+        }
+      }
+
+      // Check for take profit (example: +30%)
+      if (profitLossPercentage > 30) {
+        console.log(`🎯 Take profit triggered for position ${position.id} (${profitLossPercentage.toFixed(2)}%)`);
+        
+        // Execute take profit by closing the position
+        const success = await this.closePosition(position.id);
+        if (success) {
+          console.log(`✅ Take profit executed for position ${position.id} at ${profitLossPercentage.toFixed(2)}%`);
+        } else {
+          console.error(`❌ Failed to execute take profit for position ${position.id}`);
+        }
+      }
+    } catch (error) {
+      console.error(`Error updating position ${position.id}:`, error);
     }
   }
 
@@ -415,13 +443,6 @@ export class PositionManager {
         totalProfitLoss += position.profitLoss || 0;
       }
     }
-
-    // Apply scaling in dashboard display but keep raw calculations here
-    console.log("Portfolio metrics:", {
-      totalValue,
-      totalProfitLoss,
-      positions: positions.length
-    });
 
     const profitLossPercentage =
       totalValue > 0 ? (totalProfitLoss / totalValue) * 100 : 0;

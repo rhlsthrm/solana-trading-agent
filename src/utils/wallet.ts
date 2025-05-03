@@ -18,7 +18,6 @@ export async function initializeWallet(): Promise<SolanaWalletClient> {
     const privateKey = process.env.SOLANA_PRIVATE_KEY;
     if (privateKey) {
       const keypair = createKeypairFromSecret(privateKey);
-      console.log(`Using wallet from environment: ${keypair.publicKey.toString()}`);
       
       const connection = new Connection(
         process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com",
@@ -32,11 +31,9 @@ export async function initializeWallet(): Promise<SolanaWalletClient> {
     }
     
     // If not in env, try to load from test-wallet.json
-    console.log("No SOLANA_PRIVATE_KEY in environment, trying test-wallet.json");
     const walletData = fs.readFileSync("./test-wallet.json", "utf-8");
     const secretKey = new Uint8Array(JSON.parse(walletData));
     const keypair = Keypair.fromSecretKey(secretKey);
-    console.log(`Using test wallet: ${keypair.publicKey.toString()}`);
     
     const connection = new Connection(
       process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com",
@@ -68,14 +65,11 @@ export async function initializeWalletWithConnection(): Promise<{
     
     if (privateKey) {
       keypair = createKeypairFromSecret(privateKey);
-      console.log(`Using wallet from environment: ${keypair.publicKey.toString()}`);
     } else {
       // If not in env, try to load from test-wallet.json
-      console.log("No SOLANA_PRIVATE_KEY in environment, trying test-wallet.json");
       const walletData = fs.readFileSync("./test-wallet.json", "utf-8");
       const secretKey = new Uint8Array(JSON.parse(walletData));
       keypair = Keypair.fromSecretKey(secretKey);
-      console.log(`Using test wallet: ${keypair.publicKey.toString()}`);
     }
     
     const connection = new Connection(
