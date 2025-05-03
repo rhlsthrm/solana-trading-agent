@@ -1,3 +1,1 @@
-telegram: pnpm telegram:monitor
-position: pnpm position:monitor
-web: pnpm start
+web: npm-run-all --parallel start telegram:monitor position:monitor
