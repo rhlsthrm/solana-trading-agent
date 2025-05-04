@@ -71,7 +71,6 @@ export class JupiterService {
     });
 
     const url = `${this.QUOTE_API}/quote?${queryParams}`;
-    console.log("Fetching quote:", url);
 
     const response = await this.fetchWithRetry(url);
     return response;
@@ -224,8 +223,8 @@ export class JupiterService {
         // Create minimal token info with the current price
         const tokenInfo = {
           address: addressOrPool,
-          symbol: `TOKEN_${addressOrPool.substring(0, 5)}`, // Generate a placeholder symbol
-          name: `Token ${addressOrPool.substring(0, 8)}`, // Generate a placeholder name
+          symbol: addressOrPool.substring(0, 5), // Use first 5 chars of address as symbol
+          name: addressOrPool.substring(0, 8), // Use first 8 chars of address as name
           price: currentPrice,
           decimals: 6, // Default to 6 decimals for SPL tokens
           liquidity: 0,
@@ -250,8 +249,8 @@ export class JupiterService {
       );
       const invalidTokenInfo = {
         address: addressOrPool,
-        symbol: `TOKEN_${addressOrPool.substring(0, 5)}`,
-        name: `Token ${addressOrPool.substring(0, 8)}`,
+        symbol: addressOrPool.substring(0, 5),
+        name: addressOrPool.substring(0, 8),
         price: null,
         decimals: 6,
         liquidity: 0,

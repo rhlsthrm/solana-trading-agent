@@ -105,10 +105,11 @@
                 const entryValue = normalizedAmount * position.entryPrice;
                 const currentValue = position.currentPrice ? normalizedAmount * position.currentPrice : 0;
                 
-                // Get profit/loss from the database but normalize it for display
-                const profitLoss = normalizeTokenAmount(position.profitLoss || 0);
+                // Calculate the profit/loss directly from currentValue and entryValue
+                // This is more accurate than using the database value
+                const profitLoss = currentValue - entryValue;
                 
-                // Percentage stays the same regardless of normalization
+                // Calculate percentage based on entry value
                 const profitLossPercentage = entryValue > 0 ? (profitLoss / entryValue) * 100 : 0;
                 
                 let statusClass = 'neutral';
@@ -123,7 +124,7 @@
                 <td>
                   <div class="token-cell">
                     <div>
-                      <div class="token-symbol"><%= tokenInfo.symbol %></div>
+                      <div class="token-name"><%= tokenInfo.name || tokenInfo.symbol %></div>
                       <div class="token-address"><%= truncateAddress(position.tokenAddress) %></div>
                     </div>
                   </div>
@@ -182,11 +183,14 @@
                 // Normalize the trade amount for display
                 const normalizedTradeAmount = normalizeTokenAmount(trade.position_size);
                 
-                // Normalize profit/loss for display
-                const profitLoss = normalizeTokenAmount(trade.profit_loss || 0);
-                
                 // Calculate values using normalized amount
                 const entryValue = normalizedTradeAmount * trade.entry_price;
+                const exitValue = normalizedTradeAmount * trade.exit_price;
+                
+                // Calculate profit/loss directly from exitValue and entryValue
+                const profitLoss = exitValue - entryValue;
+                
+                // Calculate percentage based on entry value
                 const profitLossPercentage = entryValue > 0 ? (profitLoss / entryValue) * 100 : 0;
                 const statusClass = profitLossPercentage >= 0 ? 'positive' : 'negative';
                 
@@ -200,6 +204,7 @@
                   <div class="token-cell">
                     <div>
                       <div class="token-symbol"><%= tokenInfo.symbol %></div>
+                      <div class="token-name"><%= tokenInfo.name || tokenInfo.symbol %></div>
                       <div class="token-address"><%= truncateAddress(trade.token_address) %></div>
                     </div>
                   </div>

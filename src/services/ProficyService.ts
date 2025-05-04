@@ -3,6 +3,7 @@ import { StringSession } from "telegram/sessions";
 import { TokenInfo } from "../types/trade";
 import { ProficyParser } from "./ProficyParser";
 import { IAgentRuntime } from "@elizaos/core";
+import Database from "better-sqlite3";
 
 export class ProficyService {
   private client: TelegramClient;
@@ -16,6 +17,7 @@ export class ProficyService {
       apiHash: string;
       sessionStr?: string;
       runtime: IAgentRuntime;
+      db: Database.Database;
     }
   ) {
     const stringSession = new StringSession(config.sessionStr || "");
@@ -54,11 +56,9 @@ export class ProficyService {
         return null;
       }
 
-      console.log(`Received Proficy response:\n${response.text}`);
 
       // Use the parser
       const parsedInfo = await this.parser.parseResponse(response.text);
-      console.log("Parsed Info:", parsedInfo);
 
       if (!parsedInfo || !parsedInfo.isValid) {
         console.log("Failed to parse Proficy response - No valid token found");
@@ -68,6 +68,37 @@ export class ProficyService {
       console.log(
         `Successfully parsed token: ${parsedInfo.name} (${parsedInfo.symbol}) at ${parsedInfo.solanaAddress}`
       );
+
+      // Store token information in database
+      try {
+        // Store token information in the database for future reference
+        this.config.db
+          .prepare(
+            `
+          INSERT OR REPLACE INTO tokens (
+            address, 
+            symbol, 
+            name,
+            liquidity, 
+            volume_24h, 
+            last_updated
+          ) VALUES (?, ?, ?, ?, ?, unixepoch())
+        `
+          )
+          .run(
+            parsedInfo.solanaAddress,
+            parsedInfo.symbol,
+            parsedInfo.name,
+            parsedInfo.liquidity,
+            parsedInfo.volume24h
+          );
+        console.log(
+          `✅ Token information saved to database: ${parsedInfo.symbol}`
+        );
+      } catch (err) {
+        console.error("Failed to save token information to database:", err);
+        // Non-critical error, continue with processing
+      }
 
       // Convert to TokenInfo format
       return {
@@ -134,6 +165,7 @@ export const createProficyService = (config: {
   apiHash: string;
   sessionStr?: string;
   runtime: IAgentRuntime;
+  db: Database.Database;
 }) => {
   return new ProficyService(config);
 };

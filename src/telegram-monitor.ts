@@ -92,6 +92,7 @@ async function main() {
       apiHash: process.env.TELEGRAM_API_HASH,
       sessionStr: process.env.TELEGRAM_SESSION,
       runtime,
+      db: sqliteDb,
     });
 
     const sentimentService = createSentimentAnalysisService(runtime);

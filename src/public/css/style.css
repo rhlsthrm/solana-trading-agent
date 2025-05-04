@@ -134,6 +134,11 @@ tbody tr:hover {
   font-weight: 600;
 }
 
+.token-name {
+  font-size: 0.8rem;
+  color: #4b5563;
+}
+
 .token-address {
   font-family: monospace;
   font-size: 0.75rem;

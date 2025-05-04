@@ -106,11 +106,14 @@ async function main() {
             try {
               // First try to get from the tokens table
               const tokenRecord = db.prepare(`
-                SELECT symbol FROM tokens WHERE address = ?
-              `).get(address);
+                SELECT symbol, name FROM tokens WHERE address = ?
+              `).get(address) as { symbol: string; name?: string } | undefined;
               
-              if (tokenRecord && typeof tokenRecord === 'object' && 'symbol' in tokenRecord) {
-                tokenCache[address] = { symbol: tokenRecord.symbol };
+              if (tokenRecord && tokenRecord.symbol) {
+                tokenCache[address] = { 
+                  symbol: tokenRecord.symbol, 
+                  name: tokenRecord.name || tokenRecord.symbol
+                };
               } else {
                 // If not in DB, try to get from Jupiter
                 const tokenInfo = await jupiterService.getTokenInfo(address);
@@ -120,13 +123,17 @@ async function main() {
                     name: tokenInfo.name 
                   };
                   
-                  // Store in DB for future use
+                  // Store in DB for future use (including new name field)
                   db.prepare(`
-                    INSERT OR REPLACE INTO tokens (address, symbol, last_updated) 
-                    VALUES (?, ?, unixepoch())
-                  `).run(address, tokenInfo.symbol);
+                    INSERT OR REPLACE INTO tokens (address, symbol, name, last_updated) 
+                    VALUES (?, ?, ?, unixepoch())
+                  `).run(address, tokenInfo.symbol, tokenInfo.name || tokenInfo.symbol);
                 } else {
-                  tokenCache[address] = { symbol: "???" };
+                  // If all else fails, use address substring as fallback
+                  tokenCache[address] = { 
+                    symbol: address.substring(0, 5), 
+                    name: address.substring(0, 8)
+                  };
                 }
               }
             } catch (error) {

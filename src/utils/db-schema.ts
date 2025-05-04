@@ -35,6 +35,7 @@ export const tradingSchema = `
   CREATE TABLE IF NOT EXISTS tokens (
     address TEXT PRIMARY KEY,
     symbol TEXT,
+    name TEXT,
     liquidity NUMERIC,
     volume_24h NUMERIC,
     last_updated INTEGER DEFAULT (unixepoch())
