@@ -78,78 +78,115 @@ export class JupiterService {
 
   public async executeSwap(
     quote: any,
-    walletClient: SolanaWalletClient
+    walletClient: SolanaWalletClient,
+    maxRetries = 3
   ): Promise<{
     txid: string;
     inputAmount: number;
     outputAmount: number;
   } | null> {
-    try {
-      console.log("Preparing swap with quote:", {
-        inAmount: quote.inAmount,
-        outAmount: quote.outAmount,
-        priceImpact: quote.priceImpactPct,
-      });
+    let retryCount = 0;
+    
+    while (retryCount <= maxRetries) {
+      try {
+        console.log(`Preparing swap attempt ${retryCount + 1}/${maxRetries + 1} with quote:`, {
+          inAmount: quote.inAmount,
+          outAmount: quote.outAmount,
+          priceImpact: quote.priceImpactPct,
+        });
 
-      // Get transaction data from Jupiter
-      const { swapTransaction } = await this.fetchWithRetry(
-        `${this.QUOTE_API}/swap`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            quoteResponse: quote,
-            userPublicKey: walletClient.getAddress(),
-            wrapAndUnwrapSol: true,
-            computeUnitPriceMicroLamports: "auto",
-            dynamicComputeUnitLimit: true,
-            asLegacyTransaction: true,
-          }),
+        // Get transaction data from Jupiter with fresh blockhash
+        const { swapTransaction } = await this.fetchWithRetry(
+          `${this.QUOTE_API}/swap`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              quoteResponse: quote,
+              userPublicKey: walletClient.getAddress(),
+              wrapAndUnwrapSol: true,
+              computeUnitPriceMicroLamports: "auto",
+              dynamicComputeUnitLimit: true,
+              asLegacyTransaction: true,
+              // Always get fresh blockhash
+              skipUserConfirmation: true,
+            }),
+          }
+        );
+
+        if (!swapTransaction) {
+          console.error("No swap transaction received");
+          // If we've run out of retries, return null
+          if (retryCount >= maxRetries) return null;
+          
+          // Otherwise, wait and retry
+          retryCount++;
+          console.log(`Retrying transaction (${retryCount}/${maxRetries})...`);
+          await new Promise(resolve => setTimeout(resolve, 2000 * retryCount));
+          continue;
         }
-      );
 
-      if (!swapTransaction) {
-        console.error("No swap transaction received");
-        return null;
+        console.log("Got swap transaction data");
+
+        // Decode base64 transaction data
+        const transactionData = Buffer.from(swapTransaction, "base64");
+
+        // Deserialize into Transaction
+        const transaction = Transaction.from(transactionData);
+
+        // Convert to format expected by GOAT SDK
+        const goatTransaction = {
+          instructions: transaction.instructions,
+          // No lookup tables since we're using legacy transactions
+        };
+
+        console.log(
+          "Sending transaction with instructions count:",
+          transaction.instructions.length
+        );
+
+        // Execute using wallet client
+        const result = await walletClient.sendTransaction(goatTransaction);
+
+        console.log("Transaction sent:", result);
+
+        return {
+          txid: result.hash,
+          inputAmount: quote.inAmount,
+          outputAmount: quote.outAmount,
+        };
+      } catch (error: any) {
+        const errorMessage = error?.message || '';
+        const isBlockhashError = 
+          errorMessage.includes("Blockhash not found") || 
+          errorMessage.includes("blockhash") ||
+          errorMessage.includes("0x1") || // Solana blockhash error code
+          errorMessage.includes("expired");
+        
+        console.error(`Swap execution failed (attempt ${retryCount + 1}/${maxRetries + 1}):`, error);
+        console.error("Error details:", {
+          name: error?.name,
+          message: error?.message,
+          isBlockhashError,
+        });
+        
+        // If we've run out of retries, return null
+        if (retryCount >= maxRetries) return null;
+        
+        // Increase retry count
+        retryCount++;
+        
+        // For blockhash errors, we need to wait longer before retrying
+        // This gives the network time to produce new blocks
+        const delayMs = isBlockhashError ? 
+          5000 * retryCount : // 5-15 seconds for blockhash errors
+          2000 * retryCount;  // 2-6 seconds for other errors
+          
+        console.log(`Waiting ${delayMs/1000} seconds before retry ${retryCount}/${maxRetries}...`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
       }
-
-      console.log("Got swap transaction data");
-
-      // Decode base64 transaction data
-      const transactionData = Buffer.from(swapTransaction, "base64");
-
-      // Deserialize into Transaction
-      const transaction = Transaction.from(transactionData);
-
-      // Convert to format expected by GOAT SDK
-      const goatTransaction = {
-        instructions: transaction.instructions,
-        // No lookup tables since we're using legacy transactions
-      };
-
-      console.log(
-        "Sending transaction with instructions count:",
-        transaction.instructions.length
-      );
-
-      // Execute using wallet client
-      const result = await walletClient.sendTransaction(goatTransaction);
-
-      console.log("Transaction sent:", result);
-
-      return {
-        txid: result.hash,
-        inputAmount: quote.inAmount,
-        outputAmount: quote.outAmount,
-      };
-    } catch (error: any) {
-      console.error("Swap execution failed:", error);
-      console.error("Error details:", {
-        name: error.name,
-        message: error.message,
-        stack: error.stack,
-      });
-      return null;
     }
+    
+    return null;
   }
 
   public async getTokenInfo(addressOrPool: string): Promise<TokenInfo | null> {
