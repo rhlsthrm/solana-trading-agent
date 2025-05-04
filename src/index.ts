@@ -26,8 +26,10 @@ let connection: Connection;
 let tokenCache: Record<string, any> = {};
 
 async function initializeDatabase(): Promise<Database.Database> {
-  console.log("Connecting to database...");
-  const sqliteDb = new Database("./trading.db", {
+  const dbPath = process.env.DB_PATH;
+  console.log(`Connecting to database at ${dbPath}...`);
+  
+  const sqliteDb = new Database(dbPath, {
     verbose: process.env.DEBUG ? console.log : undefined,
   });
 

@@ -16,8 +16,12 @@ import { createPositionManager } from "./services/PositionManager";
 import { elizaSchema, telegramSchema, tradingSchema } from "./utils/db-schema";
 
 async function initializeDatabase(): Promise<Database.Database> {
+  // Use environment variable DB_PATH or fallback to default path
+  const dbPath = process.env.DB_PATH;
+  console.log(`Connecting to database at ${dbPath}...`);
+  
   // Initialize SQLite database with schema
-  const sqliteDb = new Database("./trading.db", {
+  const sqliteDb = new Database(dbPath, {
     verbose: process.env.DEBUG ? console.log : undefined,
   });
 
