@@ -66,39 +66,9 @@ export class ProficyService {
       }
 
       console.log(
-        `Successfully parsed token: ${parsedInfo.name} (${parsedInfo.symbol}) at ${parsedInfo.solanaAddress}`
+        `Successfully parsed token: ${parsedInfo}`
       );
 
-      // Store token information in database
-      try {
-        // Store token information in the database for future reference
-        this.config.db
-          .prepare(
-            `
-          INSERT OR REPLACE INTO tokens (
-            address, 
-            symbol, 
-            name,
-            liquidity, 
-            volume_24h, 
-            last_updated
-          ) VALUES (?, ?, ?, ?, ?, unixepoch())
-        `
-          )
-          .run(
-            parsedInfo.solanaAddress,
-            parsedInfo.symbol,
-            parsedInfo.name,
-            parsedInfo.liquidity,
-            parsedInfo.volume24h
-          );
-        console.log(
-          `✅ Token information saved to database: ${parsedInfo.symbol}`
-        );
-      } catch (err) {
-        console.error("Failed to save token information to database:", err);
-        // Non-critical error, continue with processing
-      }
 
       // Convert to TokenInfo format
       return {
@@ -106,7 +76,7 @@ export class ProficyService {
         symbol: parsedInfo.symbol,
         name: parsedInfo.name,
         price: parsedInfo.price,
-        decimals: 6, // Default to 6 decimals for SPL tokens
+        decimals: 9,
         liquidity: parsedInfo.liquidity,
         volume24h: parsedInfo.volume24h,
         marketCap: parsedInfo.marketCap,

@@ -32,6 +32,7 @@ export interface EnhancedSignal {
   buySignalStrength?: number;
   urgencyLevel?: "low" | "medium" | "high";
   reasonForBuy?: string;
+  tokenInfo?: any;
 }
 
 // Interface for positions (used for sell detection)
@@ -409,6 +410,7 @@ export class TelegramMonitorService {
         price: tokenInfo.price || null,
         volume24h: tokenInfo.volume24h || 0,
         liquidity: tokenInfo.liquidity || 0,
+        tokenInfo: tokenInfo,
       };
 
       // Add enhanced sentiment data if available

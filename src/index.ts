@@ -66,7 +66,6 @@ async function main() {
     // Only log minimal wallet initialization info
     console.log("Wallet initialized successfully");
     
-    // Create Jupiter service
     jupiterService = createJupiterService();
     
     // Create position manager

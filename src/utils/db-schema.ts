@@ -36,7 +36,7 @@ export const tradingSchema = `
     address TEXT PRIMARY KEY,
     symbol TEXT,
     name TEXT,
-    decimals INTEGER DEFAULT 6,
+    decimals INTEGER DEFAULT 9,
     liquidity NUMERIC,
     volume_24h NUMERIC,
     last_updated INTEGER DEFAULT (unixepoch())

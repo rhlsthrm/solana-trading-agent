@@ -70,7 +70,7 @@ async function main() {
     const dbAdapter = new SqliteDatabaseAdapter(sqliteDb);
 
     // Initialize wallet
-    const { walletClient, connection } = await initializeWalletWithConnection();
+    const { walletClient } = await initializeWalletWithConnection();
 
     // Create runtime
     const runtime = await createRuntime(dbAdapter);

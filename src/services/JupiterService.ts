@@ -1,4 +1,4 @@
-import { Transaction, VersionedTransaction } from "@solana/web3.js";
+import { Transaction } from "@solana/web3.js";
 import { SolanaWalletClient, TokenInfo } from "../types/trade";
 
 export class JupiterService {
@@ -392,4 +392,6 @@ export class JupiterService {
   }
 }
 
-export const createJupiterService = () => new JupiterService();
+export const createJupiterService = () => {
+  return new JupiterService();
+};

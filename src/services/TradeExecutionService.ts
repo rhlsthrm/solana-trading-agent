@@ -2,7 +2,7 @@ import { generateObject, ModelClass, IAgentRuntime } from "@elizaos/core";
 import { Database } from "better-sqlite3";
 import { z } from "zod";
 import { JupiterService } from "./JupiterService";
-import { SolanaWalletClient } from "../types/trade";
+import { SolanaWalletClient, TokenInfo } from "../types/trade";
 import { PositionManager } from "./PositionManager";
 import { randomUUID } from "../utils/uuid";
 
@@ -21,6 +21,42 @@ export class TradeExecutionService {
     private runtime: IAgentRuntime,
     private positionManager: PositionManager
   ) {}
+  
+  /**
+   * Centralized function to save token information to the database
+   * This ensures consistent handling of token data across different services
+   */
+  private saveTokenInfo(token: TokenInfo): boolean {
+    try {
+      // Get token decimals from on-chain data if available
+      const decimals = token.decimals || 9; // Default to 9 for meme tokens
+      
+      this.db.prepare(`
+        INSERT OR REPLACE INTO tokens (
+          address, 
+          symbol, 
+          name,
+          decimals,
+          liquidity, 
+          volume_24h, 
+          last_updated
+        ) VALUES (?, ?, ?, ?, ?, ?, unixepoch())
+      `).run(
+        token.address,
+        token.symbol,
+        token.name,
+        decimals,
+        token.liquidity || 0,
+        token.volume24h || 0
+      );
+      
+      console.log(`✅ Token information saved to database: ${token.symbol} with ${decimals} decimals`);
+      return true;
+    } catch (err) {
+      console.error("Failed to save token information to database:", err);
+      return false;
+    }
+  }
 
   async executeTrade(signal: any): Promise<boolean> {
     // Handle sell signals differently from buy signals
@@ -79,8 +115,29 @@ export class TradeExecutionService {
           this.db.exec("ROLLBACK");
           return false;
         }
+        
+        // We'll get token info from both sources and merge them
+        let proficyTokenInfo = null;
+        let jupiterTokenInfo = null;
+        
+        // Get Proficy token info if available in the signal (for complete name and symbol)
+        if (signal.tokenInfo && signal.tokenInfo.isValid) {
+            proficyTokenInfo = signal.tokenInfo;
+        }
+        
+        jupiterTokenInfo = await this.jupiterService.getTokenInfo(signal.tokenAddress);
+        
+        const tokenInfo = jupiterTokenInfo ? {
+            ...jupiterTokenInfo,
+            name: proficyTokenInfo?.name || jupiterTokenInfo.name,
+            symbol: proficyTokenInfo?.symbol || jupiterTokenInfo.symbol
+        } : proficyTokenInfo;
+        
+        if (tokenInfo) {
+            this.saveTokenInfo(tokenInfo);
+            console.log(`✅ Merged token info saved to database: ${tokenInfo.symbol} (${tokenInfo.name}) with ${tokenInfo.decimals} decimals`);
+        }
 
-        // Record trade
         this.db
           .prepare(
             `

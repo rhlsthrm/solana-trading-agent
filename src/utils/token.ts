@@ -6,10 +6,10 @@
  * 
  * Solana tokens typically have 6-9 decimal places
  * @param amount - The raw token amount from the blockchain/database
- * @param decimals - The number of decimal places (default: 6 for SPL tokens)
+ * @param decimals - The number of decimal places (default: 9 for meme tokens)
  * @returns The normalized token amount
  */
-export function normalizeTokenAmount(amount: number, decimals: number = 6): number {
+export function normalizeTokenAmount(amount: number, decimals: number = 9): number {
   return amount / Math.pow(10, decimals);
 }
 
@@ -17,10 +17,10 @@ export function normalizeTokenAmount(amount: number, decimals: number = 6): numb
  * Convert a human-readable token amount to its raw format for blockchain transactions
  * 
  * @param amount - The human-readable amount
- * @param decimals - The number of decimal places (default: 6 for SPL tokens)
+ * @param decimals - The number of decimal places (default: 9 for meme tokens)
  * @returns The raw token amount
  */
-export function denormalizeTokenAmount(amount: number, decimals: number = 6): number {
+export function denormalizeTokenAmount(amount: number, decimals: number = 9): number {
   return Math.floor(amount * Math.pow(10, decimals));
 }
 
