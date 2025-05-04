@@ -98,8 +98,14 @@
           <tbody>
             <% positions.forEach(position => { %>
               <% 
-                // Normalize the token amount for display (divide by 10^6)
-                const normalizedAmount = normalizeTokenAmount(position.amount);
+                // Get token info from our cache
+                const tokenInfo = tokenMap[position.tokenAddress] || { symbol: '???', name: 'Unknown', decimals: 9 };
+                
+                // Get the token decimals from our cache or use default
+                const tokenDecimals = tokenInfo.decimals || 9;
+                
+                // Normalize the token amount using the correct number of decimals
+                const normalizedAmount = normalizeTokenAmount(position.amount, tokenDecimals);
                 
                 // Calculate values using normalized amount for display
                 const entryValue = normalizedAmount * position.entryPrice;
@@ -117,8 +123,6 @@
                 else if (profitLossPercentage > 0) statusClass = 'positive';
                 else if (profitLossPercentage < -10) statusClass = 'negative';
                 else if (profitLossPercentage < 0) statusClass = 'negative';
-                
-                const tokenInfo = tokenMap[position.tokenAddress] || { symbol: '???' };
               %>
               <tr>
                 <td>
@@ -180,8 +184,14 @@
           <tbody>
             <% recentTrades.forEach(trade => { %>
               <% 
-                // Normalize the trade amount for display
-                const normalizedTradeAmount = normalizeTokenAmount(trade.position_size);
+                // Get token info from our cache
+                const tokenInfo = tokenMap[trade.token_address] || { symbol: '???', name: 'Unknown', decimals: 9 };
+                
+                // Get the token decimals
+                const tokenDecimals = tokenInfo.decimals || 9;
+                
+                // Normalize the trade amount using the correct number of decimals
+                const normalizedTradeAmount = normalizeTokenAmount(trade.position_size, tokenDecimals);
                 
                 // Calculate values using normalized amount
                 const entryValue = normalizedTradeAmount * trade.entry_price;
@@ -193,8 +203,6 @@
                 // Calculate percentage based on entry value
                 const profitLossPercentage = entryValue > 0 ? (profitLoss / entryValue) * 100 : 0;
                 const statusClass = profitLossPercentage >= 0 ? 'positive' : 'negative';
-                
-                const tokenInfo = tokenMap[trade.token_address] || { symbol: '???' };
                 const exitDate = new Date(trade.exit_time * 1000);
                 const dateString = exitDate.toLocaleDateString() + ' ' + 
                                   exitDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});

@@ -229,7 +229,7 @@ export class JupiterService {
               symbol: tokenData.symbol || "UNKNOWN",
               name: tokenData.name || tokenData.symbol || "Unknown Token",
               price: finalPrice,
-              decimals: tokenData.decimals || 6,
+              decimals: tokenData.decimals || 9,
               liquidity: tokenData.liquidity || 0,
               volume24h: tokenData.volume24h || 0,
               marketCap: tokenData.marketCap || 0,
@@ -257,13 +257,26 @@ export class JupiterService {
       const currentPrice = await this.getCurrentPrice(addressOrPool);
 
       if (currentPrice !== null) {
+        // Try to get token decimals from the blockchain
+        let decimals = 9;
+        try {
+          const { getTokenInfo } = await import("../utils/token-balance");
+          const onchainInfo = await getTokenInfo(addressOrPool);
+          if (onchainInfo && typeof onchainInfo.decimals === 'number') {
+            decimals = onchainInfo.decimals;
+            console.log(`Retrieved on-chain decimals for ${addressOrPool}: ${decimals}`);
+          }
+        } catch (decimalError) {
+          console.warn(`Could not get on-chain decimals for ${addressOrPool}, defaulting to 9:`, decimalError);
+        }
+
         // Create minimal token info with the current price
         const tokenInfo = {
           address: addressOrPool,
           symbol: addressOrPool.substring(0, 5), // Use first 5 chars of address as symbol
           name: addressOrPool.substring(0, 8), // Use first 8 chars of address as name
           price: currentPrice,
-          decimals: 6, // Default to 6 decimals for SPL tokens
+          decimals: decimals,
           liquidity: 0,
           volume24h: 0,
           marketCap: 0,
@@ -284,12 +297,26 @@ export class JupiterService {
       console.warn(
         `Could not get price for ${addressOrPool} - returning invalid token info`
       );
+      
+      // Try to get token decimals from the blockchain even for invalid tokens
+      let decimals = 9; // Default to 9 for meme tokens
+      try {
+        const { getTokenInfo } = await import("../utils/token-balance");
+        const onchainInfo = await getTokenInfo(addressOrPool);
+        if (onchainInfo && typeof onchainInfo.decimals === 'number') {
+          decimals = onchainInfo.decimals;
+          console.log(`Retrieved on-chain decimals for invalid token ${addressOrPool}: ${decimals}`);
+        }
+      } catch (decimalError) {
+        console.warn(`Could not get on-chain decimals for invalid token ${addressOrPool}, defaulting to 9`);
+      }
+      
       const invalidTokenInfo = {
         address: addressOrPool,
         symbol: addressOrPool.substring(0, 5),
         name: addressOrPool.substring(0, 8),
         price: null,
-        decimals: 6,
+        decimals: decimals,
         liquidity: 0,
         volume24h: 0,
         marketCap: 0,

@@ -106,13 +106,14 @@ async function main() {
             try {
               // First try to get from the tokens table
               const tokenRecord = db.prepare(`
-                SELECT symbol, name FROM tokens WHERE address = ?
-              `).get(address) as { symbol: string; name?: string } | undefined;
+                SELECT symbol, name, decimals FROM tokens WHERE address = ?
+              `).get(address) as { symbol: string; name?: string; decimals?: number } | undefined;
               
               if (tokenRecord && tokenRecord.symbol) {
                 tokenCache[address] = { 
                   symbol: tokenRecord.symbol, 
-                  name: tokenRecord.name || tokenRecord.symbol
+                  name: tokenRecord.name || tokenRecord.symbol,
+                  decimals: tokenRecord.decimals || 9
                 };
               } else {
                 // If not in DB, try to get from Jupiter
@@ -120,25 +121,32 @@ async function main() {
                 if (tokenInfo?.symbol) {
                   tokenCache[address] = { 
                     symbol: tokenInfo.symbol, 
-                    name: tokenInfo.name 
+                    name: tokenInfo.name,
+                    decimals: tokenInfo.decimals || 9
                   };
                   
-                  // Store in DB for future use (including new name field)
+                  // Store in DB for future use (including new name field and decimals)
                   db.prepare(`
-                    INSERT OR REPLACE INTO tokens (address, symbol, name, last_updated) 
-                    VALUES (?, ?, ?, unixepoch())
-                  `).run(address, tokenInfo.symbol, tokenInfo.name || tokenInfo.symbol);
+                    INSERT OR REPLACE INTO tokens (address, symbol, name, decimals, last_updated) 
+                    VALUES (?, ?, ?, ?, unixepoch())
+                  `).run(
+                    address, 
+                    tokenInfo.symbol, 
+                    tokenInfo.name || tokenInfo.symbol,
+                    tokenInfo.decimals || 9  
+                  );
                 } else {
                   // If all else fails, use address substring as fallback
                   tokenCache[address] = { 
                     symbol: address.substring(0, 5), 
-                    name: address.substring(0, 8)
+                    name: address.substring(0, 8),
+                    decimals: 9
                   };
                 }
               }
             } catch (error) {
               console.error(`Error fetching token info for ${address}:`, error);
-              tokenCache[address] = { symbol: "???" };
+              tokenCache[address] = { symbol: "???", name: "Unknown", decimals: 9 };
             }
           }
         }
