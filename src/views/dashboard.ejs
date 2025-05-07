@@ -48,8 +48,8 @@
           <div class="summary-label">SOL Balance</div>
           <div class="summary-value">
             <% if (solBalance > 0) { %>
-              <%= solBalance.toFixed(4) %> SOL
-              <span class="token-address">≈$<%= formatCurrency(solValueUsd) %></span>
+              <%= solBalance.toFixed(2) %> SOL
+              <span class="token-address">≈$<%= formatCurrency(solValueUsd, 2) %></span>
             <% } else { %>
               <span class="neutral">Not available</span>
             <% } %>
@@ -58,19 +58,26 @@
         
         <div class="summary-item">
           <div class="summary-label">Positions Value</div>
-          <div class="summary-value">$<%= formatCurrency(metrics.totalValue) %></div>
+          <div class="summary-value">$<%= formatCurrency(metrics.totalValue, 2) %></div>
         </div>
         
         <div class="summary-item">
           <div class="summary-label">Total Value</div>
-          <div class="summary-value">$<%= formatCurrency(totalValueWithSol) %></div>
+          <div class="summary-value">$<%= formatCurrency(totalValueWithSol, 2) %></div>
         </div>
         
         <div class="summary-item">
-          <div class="summary-label">Profit/Loss</div>
+          <div class="summary-label">Position P&L</div>
           <div class="summary-value <%= metrics.profitLoss >= 0 ? 'positive' : 'negative' %>">
-            $<%= formatCurrency(metrics.profitLoss) %>
+            $<%= formatCurrency(metrics.profitLoss, 2) %>
             (<%= metrics.profitLossPercentage >= 0 ? '+' : '' %><%= metrics.profitLossPercentage.toFixed(2) %>%)
+          </div>
+        </div>
+        
+        <div class="summary-item">
+          <div class="summary-label">Total P&L</div>
+          <div class="summary-value <%= metrics.totalPnL >= 0 ? 'positive' : 'negative' %>">
+            $<%= formatCurrency(metrics.totalPnL, 2) %>
           </div>
         </div>
       </div>
@@ -231,6 +238,49 @@
       <% } else { %>
         <div style="padding: 2rem; text-align: center; color: #6b7280;">
           No recent trades found.
+        </div>
+      <% } %>
+      
+      <% if (totalPages > 1) { %>
+        <div class="pagination">
+          <span class="pagination-info">Showing <%= recentTrades.length %> of <%= totalTrades %> trades</span>
+          <div class="pagination-controls">
+            <% if (currentPage > 1) { %>
+              <a href="/?page=<%= currentPage - 1 %>" class="pagination-button">Previous</a>
+            <% } %>
+            
+            <% 
+              // Determine which page numbers to show
+              let startPage = Math.max(1, currentPage - 2);
+              let endPage = Math.min(totalPages, startPage + 4);
+              
+              if (endPage - startPage < 4) {
+                startPage = Math.max(1, endPage - 4);
+              }
+            %>
+            
+            <% if (startPage > 1) { %>
+              <a href="/?page=1" class="pagination-page">1</a>
+              <% if (startPage > 2) { %>
+                <span class="pagination-ellipsis">...</span>
+              <% } %>
+            <% } %>
+            
+            <% for (let i = startPage; i <= endPage; i++) { %>
+              <a href="/?page=<%= i %>" class="pagination-page <%= i === currentPage ? 'active' : '' %>"><%= i %></a>
+            <% } %>
+            
+            <% if (endPage < totalPages) { %>
+              <% if (endPage < totalPages - 1) { %>
+                <span class="pagination-ellipsis">...</span>
+              <% } %>
+              <a href="/?page=<%= totalPages %>" class="pagination-page"><%= totalPages %></a>
+            <% } %>
+            
+            <% if (currentPage < totalPages) { %>
+              <a href="/?page=<%= currentPage + 1 %>" class="pagination-button">Next</a>
+            <% } %>
+          </div>
         </div>
       <% } %>
     </div>

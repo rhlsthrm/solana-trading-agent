@@ -197,6 +197,62 @@ tbody tr:hover {
   }
 }
 
+/* Pagination */
+.pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+  border-top: 1px solid #e5e7eb;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+
+.pagination-info {
+  color: #6b7280;
+  font-size: 0.875rem;
+  margin-right: 1rem;
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.pagination-button, .pagination-page {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 0.75rem;
+  background-color: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  color: #4b5563;
+  text-decoration: none;
+  min-width: 2rem;
+  height: 2rem;
+  transition: all 0.15s ease;
+}
+
+.pagination-page.active {
+  background-color: #3b82f6;
+  color: white;
+  border-color: #3b82f6;
+}
+
+.pagination-button:hover, .pagination-page:hover:not(.active) {
+  background-color: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+.pagination-ellipsis {
+  padding: 0 0.5rem;
+  color: #6b7280;
+}
+
 footer {
   margin-top: 2rem;
   text-align: center;

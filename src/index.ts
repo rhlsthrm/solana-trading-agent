@@ -175,6 +175,17 @@ async function main() {
         // Get portfolio metrics
         const metrics = await positionManager.getPortfolioMetrics();
         
+        // Get total P&L from completed trades
+        let totalCompletedTradesPnL = 0;
+        try {
+          const result = db.prepare(`
+            SELECT SUM(profit_loss) as total_pnl FROM trades WHERE status = 'CLOSED'
+          `).get() as { total_pnl: number | null };
+          totalCompletedTradesPnL = result.total_pnl || 0;
+        } catch (error) {
+          console.error("Error calculating total P&L from completed trades:", error);
+        }
+        
         // Get SOL balance
         let solBalance = 0;
         let solBalanceInSol = 0;
@@ -235,18 +246,35 @@ async function main() {
         const adjustedMetrics = {
           totalValue: metrics.totalValue / 1000000,
           profitLoss: metrics.profitLoss / 1000000,
-          profitLossPercentage: metrics.profitLossPercentage
+          profitLossPercentage: metrics.profitLossPercentage,
+          // Add the total P&L from both active positions and completed trades
+          totalPnL: (metrics.profitLoss / 1000000) + (totalCompletedTradesPnL / 1000000)
         };
         
         // Calculate total portfolio value (positions + SOL)
         const totalValueWithSol = adjustedMetrics.totalValue + solValueUsd;
         
-        // Get recent trades
+        // Get page parameter with default of 1
+        const pageParam = req.query.page;
+        const page = parseInt(typeof pageParam === 'string' ? pageParam : '1') || 1;
+        const tradesPerPage = 20;
+        const offset = (page - 1) * tradesPerPage;
+
+        // Get total count of trades with valid dates for pagination
+        const totalTradesResult = db.prepare(`
+          SELECT COUNT(*) as count FROM trades 
+          WHERE exit_time IS NOT NULL AND exit_time > 0
+        `).get() as { count: number };
+        const totalTrades = totalTradesResult.count;
+        const totalPages = Math.ceil(totalTrades / tradesPerPage);
+
+        // Get recent trades with pagination, filtering out items without a valid date
         const recentTrades = db.prepare(`
           SELECT * FROM trades 
+          WHERE exit_time IS NOT NULL AND exit_time > 0
           ORDER BY exit_time DESC 
-          LIMIT 10
-        `).all();
+          LIMIT ? OFFSET ?
+        `).all(tradesPerPage, offset);
         
         // Update token cache
         await updateTokenCache();
@@ -263,7 +291,11 @@ async function main() {
           formatCurrency,
           formatTokenAmount,
           truncateAddress,
-          normalizeTokenAmount
+          normalizeTokenAmount,
+          // Pagination data
+          currentPage: page,
+          totalPages,
+          totalTrades
         });
       } catch (error) {
         console.error("Error rendering dashboard:", error);
