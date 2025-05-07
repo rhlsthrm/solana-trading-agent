@@ -29,7 +29,14 @@
   
   <header class="header">
     <div class="container header-content">
-      <h1>Solana Trading Agent Dashboard</h1>
+      <div class="header-title-section">
+        <h1>Solana Trading Agent Dashboard</h1>
+        <% if (walletAddress && walletAddress !== "Unknown") { %>
+          <div class="wallet-address">
+            Wallet: <span class="address-text"><%= truncateAddress(walletAddress, 10, 5) %></span>
+          </div>
+        <% } %>
+      </div>
       <div class="refresh-info">
         Last updated: <%= new Date().toLocaleString() %>
       </div>
@@ -47,8 +54,8 @@
         <div class="summary-item">
           <div class="summary-label">SOL Balance</div>
           <div class="summary-value">
-            <% if (solBalance > 0) { %>
-              <%= solBalance.toFixed(2) %> SOL
+            <% if (typeof solBalance === 'number') { %>
+              <%= solBalance.toFixed(6) %> SOL
               <span class="token-address">≈$<%= formatCurrency(solValueUsd, 2) %></span>
             <% } else { %>
               <span class="neutral">Not available</span>

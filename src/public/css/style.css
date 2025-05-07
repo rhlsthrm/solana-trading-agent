@@ -31,6 +31,24 @@ body {
   align-items: center;
 }
 
+.header-title-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.wallet-address {
+  font-size: 0.875rem;
+  color: #cbd5e1;
+  margin-top: 0.25rem;
+}
+
+.address-text {
+  font-family: monospace;
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 0.1rem 0.4rem;
+}
+
 .refresh-info {
   font-size: 0.875rem;
   color: #cbd5e1;

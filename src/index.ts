@@ -12,6 +12,7 @@ import { Connection } from "@solana/web3.js";
 import { SolanaWalletClient } from "./types/trade";
 import { formatCurrency, formatTokenAmount, normalizeTokenAmount } from "./utils/token";
 import { initializeDatabase as initDb } from "./utils/db-schema";
+import fs from "fs";
 
 // Get the directory name using ESM pattern
 const __filename = fileURLToPath(import.meta.url);
@@ -26,17 +27,34 @@ let connection: Connection;
 let tokenCache: Record<string, any> = {};
 
 async function initializeDatabase(): Promise<Database.Database> {
-  const dbPath = process.env.DB_PATH;
+  // Use a relative path if DB_PATH is absolute and starts with / (to prevent root dir issues)
+  let dbPath = process.env.DB_PATH;
+  if (!dbPath || (dbPath.startsWith('/') && !dbPath.startsWith('/Users'))) {
+    dbPath = "./data/trading.db";
+  }
+  
   console.log(`Connecting to database at ${dbPath}...`);
   
-  const sqliteDb = new Database(dbPath, {
-    verbose: process.env.DEBUG ? console.log : undefined,
-  });
+  try {
+    // Ensure the directory exists
+    const dbDir = path.dirname(dbPath);
+    if (!fs.existsSync(dbDir)) {
+      console.log(`Creating database directory: ${dbDir}`);
+      fs.mkdirSync(dbDir, { recursive: true });
+    }
+    
+    const sqliteDb = new Database(dbPath, {
+      verbose: process.env.DEBUG ? console.log : undefined,
+    });
 
-  // Initialize database schema
-  initDb(sqliteDb);
+    // Initialize database schema
+    initDb(sqliteDb);
 
-  return sqliteDb;
+    return sqliteDb;
+  } catch (error) {
+    console.error(`Failed to initialize database at ${dbPath}:`, error);
+    throw error;
+  }
 }
 
 // We're now importing these functions from utils/token.ts
@@ -63,8 +81,25 @@ async function main() {
     walletClient = walletData.walletClient;
     connection = walletData.connection;
     
-    // Only log minimal wallet initialization info
+    // Log more detailed wallet initialization info for debugging
     console.log("Wallet initialized successfully");
+    
+    // Check if we can access the wallet's public key and log it
+    try {
+      const walletAddress = walletClient.getAddress ? walletClient.getAddress() : "Unknown";
+      console.log(`Wallet address: ${walletAddress}`);
+      
+      // Check for direct publicKey property
+      if (walletClient.publicKey) {
+        console.log(`Public key available: ${walletClient.publicKey.toString()}`);
+      } else if (walletClient.keypair && walletClient.keypair.publicKey) {
+        console.log(`Public key from keypair: ${walletClient.keypair.publicKey.toString()}`);
+      } else {
+        console.log("No public key directly accessible on wallet client");
+      }
+    } catch (error) {
+      console.error("Error accessing wallet details:", error);
+    }
     
     jupiterService = createJupiterService();
     
@@ -189,31 +224,46 @@ async function main() {
         // Get SOL balance
         let solBalance = 0;
         let solBalanceInSol = 0;
+        let walletAddress = "Unknown";
         
         try {
-          // Try multiple approaches to get the public key from the wallet
+          // First, try to get the wallet address using the getAddress method
+          if (walletClient.getAddress) {
+            walletAddress = walletClient.getAddress();
+            console.log(`Using wallet address from getAddress(): ${walletAddress}`);
+          }
+          
+          // Get public key object for balance checking
           let publicKey = null;
           
           // Method 1: Direct publicKey property
           if (walletClient.publicKey) {
             publicKey = walletClient.publicKey;
+            console.log(`Using direct publicKey property: ${publicKey.toString()}`);
           } 
           // Method 2: From keypair
           else if (walletClient.keypair && walletClient.keypair.publicKey) {
             publicKey = walletClient.keypair.publicKey;
+            console.log(`Using keypair.publicKey: ${publicKey.toString()}`);
           }
-          // Method 3: From address string
-          else if (walletClient.address) {
-            // We don't have a direct public key, so we'll just show the address in the UI
-            solBalanceInSol = 0; // Can't fetch balance without PublicKey object
+          // Method 3: From address string using PublicKey constructor
+          else if (walletAddress && walletAddress !== "Unknown") {
+            try {
+              // Convert address string to PublicKey object
+              const { PublicKey } = await import('@solana/web3.js');
+              publicKey = new PublicKey(walletAddress);
+              console.log(`Created PublicKey from address string: ${publicKey.toString()}`);
+            } catch (e) {
+              console.error(`Failed to create PublicKey from address: ${walletAddress}`, e);
+            }
           }
           // Method 4: Try to find any property that looks like a public key
           else {
-            // Look for any property that might contain the public key
             for (const key of Object.keys(walletClient)) {
               const value = walletClient[key];
               if (value && typeof value === 'object' && value.toBase58) {
                 publicKey = value;
+                console.log(`Found publicKey-like object in property '${key}': ${publicKey.toString()}`);
                 break;
               }
             }
@@ -221,8 +271,12 @@ async function main() {
           
           // If we found a public key, try to get the balance
           if (publicKey) {
+            console.log(`Fetching SOL balance for: ${publicKey.toString()}`);
             solBalance = await connection.getBalance(publicKey);
             solBalanceInSol = solBalance / 10**9; // Convert lamports to SOL
+            console.log(`SOL balance: ${solBalanceInSol} SOL (${solBalance} lamports)`);
+          } else {
+            console.warn("No publicKey available to fetch SOL balance");
           }
         } catch (error) {
           console.error("Error fetching SOL balance:", error);
@@ -287,6 +341,7 @@ async function main() {
           solBalance: solBalanceInSol,
           solValueUsd,
           totalValueWithSol,
+          walletAddress, // Add wallet address to template data
           tokenMap: tokenCache,
           formatCurrency,
           formatTokenAmount,
