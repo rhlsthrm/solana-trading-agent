@@ -27,34 +27,17 @@ let connection: Connection;
 let tokenCache: Record<string, any> = {};
 
 async function initializeDatabase(): Promise<Database.Database> {
-  // Use a relative path if DB_PATH is absolute and starts with / (to prevent root dir issues)
-  let dbPath = process.env.DB_PATH;
-  if (!dbPath || (dbPath.startsWith('/') && !dbPath.startsWith('/Users'))) {
-    dbPath = "./data/trading.db";
-  }
-  
+  const dbPath = process.env.DB_PATH;
   console.log(`Connecting to database at ${dbPath}...`);
   
-  try {
-    // Ensure the directory exists
-    const dbDir = path.dirname(dbPath);
-    if (!fs.existsSync(dbDir)) {
-      console.log(`Creating database directory: ${dbDir}`);
-      fs.mkdirSync(dbDir, { recursive: true });
-    }
-    
-    const sqliteDb = new Database(dbPath, {
-      verbose: process.env.DEBUG ? console.log : undefined,
-    });
+  const sqliteDb = new Database(dbPath, {
+    verbose: process.env.DEBUG ? console.log : undefined,
+  });
 
-    // Initialize database schema
-    initDb(sqliteDb);
+  // Initialize database schema
+  initDb(sqliteDb);
 
-    return sqliteDb;
-  } catch (error) {
-    console.error(`Failed to initialize database at ${dbPath}:`, error);
-    throw error;
-  }
+  return sqliteDb;
 }
 
 // We're now importing these functions from utils/token.ts
