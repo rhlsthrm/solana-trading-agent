@@ -338,13 +338,21 @@ export class PositionManager {
             result.txid
           );
 
+        const currentTime = Date.now();
         // Update position status
         await this.updatePosition(id, {
           status: "CLOSED",
-          lastUpdated: Date.now(),
+          lastUpdated: currentTime,
           profitLoss: profitLoss,
           currentPrice: tokenInfo.price,
         });
+        
+        // Set exit_time directly in positions table
+        this.db.prepare(`
+          UPDATE positions 
+          SET exit_time = ? 
+          WHERE id = ?
+        `).run(currentTime, id);
 
         // Commit the transaction
         this.db.exec("COMMIT");
@@ -567,6 +575,8 @@ export class PositionManager {
    */
   async getTotalClosedPositionsPnL(): Promise<number> {
     try {
+      // Use a SQL statement that doesn't reference exit_time directly
+      // to avoid dependency on this column existing
       const result = this.db.prepare(`
         SELECT SUM(profit_loss) as total_pnl 
         FROM positions 

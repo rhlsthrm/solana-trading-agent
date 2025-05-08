@@ -22,6 +22,20 @@ export function runMigrations(db: Database.Database) {
       db.exec("ALTER TABLE positions ADD COLUMN trailing_stop_percentage NUMERIC DEFAULT 20");
     }
     
+    // Check if exit_time column exists in positions table
+    const hasExitTime = checkColumnExists(db, "positions", "exit_time");
+    if (!hasExitTime) {
+      console.log("Adding exit_time column to positions table");
+      db.exec("ALTER TABLE positions ADD COLUMN exit_time INTEGER");
+      
+      // Update exit_time for closed positions
+      db.exec(`
+        UPDATE positions 
+        SET exit_time = last_updated
+        WHERE status = 'CLOSED'
+      `);
+    }
+    
     // Update existing rows to set values for new columns
     if (!hasHighestPrice || !hasTrailingStop) {
       console.log("Setting default values for new columns in existing positions");

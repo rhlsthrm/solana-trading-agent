@@ -11,6 +11,7 @@ export const tradingSchema = `
     last_updated INTEGER NOT NULL,
     profit_loss NUMERIC,
     trailing_stop_percentage NUMERIC DEFAULT 20,
+    exit_time INTEGER,
     status TEXT CHECK (status IN ('ACTIVE', 'CLOSED', 'LIQUIDATED'))
   );
 
