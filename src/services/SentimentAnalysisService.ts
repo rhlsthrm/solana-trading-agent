@@ -41,19 +41,22 @@ export class SentimentAnalysisService {
   2. Phrases like "still early" or "still low cap" (positive buy signals despite some movement)
   3. Mentions of target prices or expected movement (indicates potential remains)
   4. Messages with strong buying sentiment despite some price increase
+  5. First-time mentions of tokens with recent performance (e.g., "did 3x yesterday" could be a buy opportunity)
+  6. Messages indicating a token is retesting support levels after a pump
+  7. Phrases like "add more" or "loading more" indicating continued accumulation
 
   Important SELL patterns to detect:
   1. Update messages reporting 5x or higher gains (indicates potential top)
   2. Messages containing phrases like "take profits" or "secure gains"
   3. Updates showing extreme volatility or rapid price increase (may indicate pump and dump)
-  4. Messages that mention "XX" with high multipliers (5x, 10x, etc.)
+  4. Messages that mention "XX" with high multipliers (5x, 10x, etc.) AND contain warnings about a top
   5. Phrases indicating momentum is slowing like "starting to stabilize" or "consolidating"
 
   For already pumped tokens:
-  - If token has pumped 1-2x but sentiment is very bullish (95+ confidence), consider it a buy
-  - If token has pumped 3-4x with continued strong sentiment, it could still be a buy but with caution
-  - If token has pumped 5x or more, consider it a potential SELL signal if we already hold it
-  - If message specifically mentions "moon" or "parabolic" with high multiples, consider it a SELL signal
+  - If token has pumped 1-3x but sentiment is still bullish (especially if mentioning "re-test" or "floor"), consider it a BUY
+  - If token has pumped 3-4x with continued strong sentiment, label as BUY with medium urgency (not SELL)
+  - Only consider tokens that have pumped 5x+ as potential SELL signals, and only if momentum appears to be slowing
+  - If a pumped token is described as having a "decent idea" or website, this usually signals continued upside potential
   `;
 
   private readonly BASIC_SENTIMENT_PROMPT = `

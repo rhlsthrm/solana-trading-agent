@@ -454,15 +454,24 @@ export class TelegramMonitorService {
           );
         }
 
-        // Messages specifically about big multiples on tokens we own should be considered sell signals
+        // For 3-4x pumps, only consider it a sell signal if it's an update message AND we have a position
+        // Messages about tokens with 3-4x pumps can still be buy signals if we don't already own them
         if (
           signal.isUpdateMessage &&
           (pumpMultiplier || 0) >= 3 &&
+          (pumpMultiplier || 0) < 5 &&
           existingPosition
         ) {
           shouldBeConsideredSell = true;
           console.log(
-            `📈 Update message with significant gains (${pumpMultiplier}x) - considering sell signal`
+            `📈 Update message with significant gains (${pumpMultiplier}x) on owned token - considering sell signal`
+          );
+        }
+        
+        // Messages indicating a 3-4x pump on tokens we DON'T own should remain BUY signals
+        if ((pumpMultiplier || 0) >= 3 && (pumpMultiplier || 0) < 5 && !existingPosition) {
+          console.log(
+            `🔄 Keeping as BUY signal for ${pumpMultiplier}x token we don't own yet`
           );
         }
 
