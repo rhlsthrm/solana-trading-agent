@@ -193,16 +193,8 @@ async function main() {
         // Get portfolio metrics
         const metrics = await positionManager.getPortfolioMetrics();
         
-        // Get total P&L from completed trades
-        let totalCompletedTradesPnL = 0;
-        try {
-          const result = db.prepare(`
-            SELECT SUM(profit_loss) as total_pnl FROM trades WHERE status = 'CLOSED'
-          `).get() as { total_pnl: number | null };
-          totalCompletedTradesPnL = result.total_pnl || 0;
-        } catch (error) {
-          console.error("Error calculating total P&L from completed trades:", error);
-        }
+        // Get comprehensive P&L data from all sources
+        const pnlData = await positionManager.getComprehensivePnL();
         
         // Get SOL balance
         let solBalance = 0;
@@ -284,8 +276,8 @@ async function main() {
           totalValue: metrics.totalValue / 1000000,
           profitLoss: metrics.profitLoss / 1000000,
           profitLossPercentage: metrics.profitLossPercentage,
-          // Add the total P&L from both active positions and completed trades
-          totalPnL: (metrics.profitLoss / 1000000) + (totalCompletedTradesPnL / 1000000)
+          // Use the comprehensive P&L data
+          totalPnL: pnlData.totalPnL
         };
         
         // Calculate total portfolio value (positions + SOL)

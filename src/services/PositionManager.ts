@@ -22,6 +22,13 @@ export interface PositionMetrics {
   profitLossPercentage: number;
 }
 
+export interface ProfitLossData {
+  activePnL: number;
+  closedPositionsPnL: number;
+  tradePnL: number;
+  totalPnL: number;
+}
+
 export class PositionManager {
   constructor(
     private db: Database.Database,
@@ -504,6 +511,73 @@ export class PositionManager {
       totalValue,
       profitLoss: totalProfitLoss,
       profitLossPercentage,
+    };
+  }
+  
+  /**
+   * Get the total profit/loss from all closed positions
+   * Note: This provides a historical record of P&L from the positions table
+   */
+  async getTotalClosedPositionsPnL(): Promise<number> {
+    try {
+      const result = this.db.prepare(`
+        SELECT SUM(profit_loss) as total_pnl 
+        FROM positions 
+        WHERE status = 'CLOSED'
+      `).get() as { total_pnl: number | null };
+      
+      return result.total_pnl || 0;
+    } catch (error) {
+      console.error("Error calculating total P&L from closed positions:", error);
+      return 0;
+    }
+  }
+  
+  /**
+   * Get the total profit/loss from all completed trades
+   * @param normalized Whether to normalize the P&L by dividing by 1,000,000 (default: true)
+   */
+  async getTotalTradesPnL(normalized = true): Promise<number> {
+    try {
+      const result = this.db.prepare(`
+        SELECT SUM(profit_loss) as total_pnl 
+        FROM trades 
+        WHERE status = 'CLOSED'
+      `).get() as { total_pnl: number | null };
+      
+      const rawPnL = result.total_pnl || 0;
+      return normalized ? rawPnL / 1000000 : rawPnL;
+    } catch (error) {
+      console.error("Error calculating total P&L from trades:", error);
+      return 0;
+    }
+  }
+  
+  /**
+   * Get comprehensive profit/loss data from all sources
+   * This combines active positions, closed positions, and trades
+   */
+  async getComprehensivePnL(): Promise<ProfitLossData> {
+    const metrics = await this.getPortfolioMetrics();
+    const closedPositionsPnL = await this.getTotalClosedPositionsPnL();
+    // Get normalized trades P&L (already divided by 1,000,000)
+    const tradePnL = await this.getTotalTradesPnL(true);
+    
+    // Convert all values to dollar-scale
+    const activePnLScaled = metrics.profitLoss / 1000000;
+    const closedPositionsPnLScaled = closedPositionsPnL / 1000000;
+    
+    // Log the individual components for debugging
+    console.log(`Active positions P&L: $${activePnLScaled.toFixed(4)}`);
+    console.log(`Closed positions P&L: $${closedPositionsPnLScaled.toFixed(4)}`);
+    console.log(`Trades P&L: $${tradePnL.toFixed(4)}`);
+    console.log(`Total P&L: $${(activePnLScaled + tradePnL).toFixed(4)}`);
+    
+    return {
+      activePnL: activePnLScaled,
+      closedPositionsPnL: closedPositionsPnLScaled,
+      tradePnL: tradePnL,
+      totalPnL: activePnLScaled + tradePnL
     };
   }
 }
