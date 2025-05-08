@@ -4,6 +4,7 @@ import { JupiterService } from "./JupiterService";
 import { SolanaWalletClient } from "../types/trade";
 import { randomUUID } from "../utils/uuid";
 import { tradingSchema } from "../utils/db-schema";
+import { runMigrations } from "../utils/migrations";
 
 export interface Position {
   id: string;
@@ -41,47 +42,15 @@ export class PositionManager {
   }
 
   private initializeDatabase() {
-    // Use the imported schema
-    this.db.exec(tradingSchema);
-    
-    // Run migrations for existing data
-    this.migrateExistingPositions();
-  }
-  
-  private migrateExistingPositions() {
     try {
-      // Check if there are any positions that need migration
-      const positionsNeedingMigration = this.db.prepare(`
-        SELECT id, current_price 
-        FROM positions 
-        WHERE highest_price IS NULL OR trailing_stop_percentage IS NULL
-      `).all() as { id: string; current_price: number | null }[];
+      // First ensure the base schema exists
+      this.db.exec(tradingSchema);
       
-      if (positionsNeedingMigration.length > 0) {
-        console.log(`Migrating ${positionsNeedingMigration.length} positions to add trailing stop support...`);
-        
-        // Start a transaction for the migration
-        this.db.exec("BEGIN TRANSACTION");
-        
-        const updateStmt = this.db.prepare(`
-          UPDATE positions
-          SET 
-            highest_price = COALESCE(highest_price, current_price, entry_price),
-            trailing_stop_percentage = COALESCE(trailing_stop_percentage, 20)
-          WHERE id = ?
-        `);
-        
-        for (const position of positionsNeedingMigration) {
-          updateStmt.run(position.id);
-        }
-        
-        this.db.exec("COMMIT");
-        console.log("Migration completed successfully");
-      }
+      // Then run migrations to add any missing columns and update existing data
+      runMigrations(this.db);
     } catch (error) {
-      // Rollback in case of error
-      this.db.exec("ROLLBACK");
-      console.error("Error migrating existing positions:", error);
+      console.error("Error initializing database:", error);
+      throw error;
     }
   }
 
@@ -144,21 +113,24 @@ export class PositionManager {
   }
 
   // Prepared statement for getting a position by ID
-  private getPositionStmt = this.db.prepare(`
-    SELECT 
-      id,
-      token_address as tokenAddress,
-      amount,
-      entry_price as entryPrice,
-      current_price as currentPrice,
-      highest_price as highestPrice,
-      last_updated as lastUpdated,
-      profit_loss as profitLoss,
-      status,
-      trailing_stop_percentage as trailingStopPercentage
-    FROM positions 
-    WHERE id = ?
-  `);
+  // Use lazy initialization for prepared statements to ensure migrations run first
+  private get getPositionStmt() {
+    return this.db.prepare(`
+      SELECT 
+        id,
+        token_address as tokenAddress,
+        amount,
+        entry_price as entryPrice,
+        current_price as currentPrice,
+        COALESCE(highest_price, current_price, entry_price) as highestPrice,
+        last_updated as lastUpdated,
+        profit_loss as profitLoss,
+        status,
+        COALESCE(trailing_stop_percentage, 20) as trailingStopPercentage
+      FROM positions 
+      WHERE id = ?
+    `);
+  }
 
   async getPosition(id: string): Promise<Position | null> {
     const position = this.getPositionStmt.get(id);
@@ -166,22 +138,24 @@ export class PositionManager {
   }
 
   // Prepared statement for getting a position by token address
-  private getPositionByTokenStmt = this.db.prepare(`
-    SELECT 
-      id,
-      token_address as tokenAddress,
-      amount,
-      entry_price as entryPrice,
-      current_price as currentPrice,
-      highest_price as highestPrice,
-      last_updated as lastUpdated,
-      profit_loss as profitLoss,
-      status,
-      trailing_stop_percentage as trailingStopPercentage
-    FROM positions 
-    WHERE token_address = ? 
-    AND status = 'ACTIVE'
-  `);
+  private get getPositionByTokenStmt() {
+    return this.db.prepare(`
+      SELECT 
+        id,
+        token_address as tokenAddress,
+        amount,
+        entry_price as entryPrice,
+        current_price as currentPrice,
+        COALESCE(highest_price, current_price, entry_price) as highestPrice,
+        last_updated as lastUpdated,
+        profit_loss as profitLoss,
+        status,
+        COALESCE(trailing_stop_percentage, 20) as trailingStopPercentage
+      FROM positions 
+      WHERE token_address = ? 
+      AND status = 'ACTIVE'
+    `);
+  }
 
   async getPositionByToken(tokenAddress: string): Promise<Position | null> {
     const position = this.getPositionByTokenStmt.get(tokenAddress);
@@ -189,21 +163,23 @@ export class PositionManager {
   }
 
   // Prepared statement for getting all active positions
-  private getAllActivePositionsStmt = this.db.prepare(`
-    SELECT 
-      id,
-      token_address as tokenAddress,
-      amount,
-      entry_price as entryPrice,
-      current_price as currentPrice,
-      highest_price as highestPrice,
-      last_updated as lastUpdated,
-      profit_loss as profitLoss,
-      status,
-      trailing_stop_percentage as trailingStopPercentage
-    FROM positions 
-    WHERE status = 'ACTIVE'
-  `);
+  private get getAllActivePositionsStmt() {
+    return this.db.prepare(`
+      SELECT 
+        id,
+        token_address as tokenAddress,
+        amount,
+        entry_price as entryPrice,
+        current_price as currentPrice,
+        COALESCE(highest_price, current_price, entry_price) as highestPrice,
+        last_updated as lastUpdated,
+        profit_loss as profitLoss,
+        status,
+        COALESCE(trailing_stop_percentage, 20) as trailingStopPercentage
+      FROM positions 
+      WHERE status = 'ACTIVE'
+    `);
+  }
 
   async getAllActivePositions(): Promise<Position[]> {
     // Execute the prepared statement
@@ -213,18 +189,20 @@ export class PositionManager {
   }
 
   // Prepare statements once during initialization for better performance
-  private updatePositionStmt = this.db.prepare(`
-    UPDATE positions 
-    SET 
-      amount = ?,
-      current_price = ?,
-      highest_price = ?,
-      last_updated = ?,
-      profit_loss = ?,
-      status = ?,
-      trailing_stop_percentage = ?
-    WHERE id = ?
-  `);
+  private get updatePositionStmt() {
+    return this.db.prepare(`
+      UPDATE positions 
+      SET 
+        amount = ?,
+        current_price = ?,
+        highest_price = ?,
+        last_updated = ?,
+        profit_loss = ?,
+        status = ?,
+        trailing_stop_percentage = ?
+      WHERE id = ?
+    `);
+  }
 
   async updatePosition(
     id: string,
