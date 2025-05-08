@@ -575,6 +575,33 @@ export class PositionManager {
    */
   async getTotalClosedPositionsPnL(): Promise<number> {
     try {
+      // Get all closed positions with details for logging
+      const closedPositions = this.db.prepare(`
+        SELECT id, token_address, profit_loss, exit_time, amount, entry_price
+        FROM positions 
+        WHERE status = 'CLOSED'
+        ORDER BY exit_time DESC
+      `).all() as { 
+        id: string; 
+        token_address: string; 
+        profit_loss: number; 
+        exit_time: number;
+        amount: number;
+        entry_price: number;
+      }[];
+      
+      console.log("\n===== DETAILED CLOSED POSITIONS P&L =====");
+      console.log(`Found ${closedPositions.length} closed positions in database`);
+      let totalPnLCalculation = 0;
+      
+      closedPositions.forEach((position, index) => {
+        const normalizedPnL = position.profit_loss / 1000000;
+        totalPnLCalculation += normalizedPnL;
+        const date = position.exit_time ? new Date(position.exit_time).toLocaleString() : 'Unknown';
+        const amount = position.amount / 1000000; // Normalize amount for display
+        console.log(`Position #${index+1}: ID=${position.id.substring(0,8)}... Token=${position.token_address.substring(0,8)}... Amount=${amount.toFixed(6)} Entry=$${position.entry_price} P&L=$${normalizedPnL.toFixed(6)} Date=${date}`);
+      });
+      
       // Use a SQL statement that doesn't reference exit_time directly
       // to avoid dependency on this column existing
       const result = this.db.prepare(`
@@ -583,7 +610,14 @@ export class PositionManager {
         WHERE status = 'CLOSED'
       `).get() as { total_pnl: number | null };
       
-      return result.total_pnl || 0;
+      const totalPnL = result.total_pnl || 0;
+      const normalizedTotalPnL = totalPnL / 1000000;
+      
+      console.log(`Individual positions sum: $${totalPnLCalculation.toFixed(6)}`);
+      console.log(`Database query sum:       $${normalizedTotalPnL.toFixed(6)}`);
+      console.log("=========================================\n");
+      
+      return totalPnL;
     } catch (error) {
       console.error("Error calculating total P&L from closed positions:", error);
       return 0;
@@ -596,6 +630,26 @@ export class PositionManager {
    */
   async getTotalTradesPnL(normalized = true): Promise<number> {
     try {
+      // First log all trades to see their individual P&L contributions
+      const allTrades = this.db.prepare(`
+        SELECT id, token_address, profit_loss, exit_time 
+        FROM trades 
+        WHERE status = 'CLOSED'
+        ORDER BY exit_time DESC
+      `).all() as { id: string; token_address: string; profit_loss: number; exit_time: number }[];
+      
+      console.log("\n===== DETAILED TRADE P&L BREAKDOWN =====");
+      console.log(`Found ${allTrades.length} closed trades in database`);
+      let totalPnLCalculation = 0;
+      
+      allTrades.forEach((trade, index) => {
+        const normalizedPnL = trade.profit_loss / 1000000;
+        totalPnLCalculation += normalizedPnL;
+        const date = new Date(trade.exit_time * 1000).toLocaleString();
+        console.log(`Trade #${index+1}: ID=${trade.id.substring(0,8)}... Token=${trade.token_address.substring(0,8)}... P&L=$${normalizedPnL.toFixed(6)} Date=${date}`);
+      });
+      
+      // Now get the sum as before
       const result = this.db.prepare(`
         SELECT SUM(profit_loss) as total_pnl 
         FROM trades 
@@ -603,7 +657,13 @@ export class PositionManager {
       `).get() as { total_pnl: number | null };
       
       const rawPnL = result.total_pnl || 0;
-      return normalized ? rawPnL / 1000000 : rawPnL;
+      const normalizedTotal = normalized ? rawPnL / 1000000 : rawPnL;
+      
+      console.log(`Individual trades sum: $${totalPnLCalculation.toFixed(6)}`);
+      console.log(`Database query sum:   $${(normalizedTotal).toFixed(6)}`);
+      console.log("=========================================\n");
+      
+      return normalizedTotal;
     } catch (error) {
       console.error("Error calculating total P&L from trades:", error);
       return 0;
@@ -615,8 +675,21 @@ export class PositionManager {
    * This combines active positions, closed positions, and trades
    */
   async getComprehensivePnL(): Promise<ProfitLossData> {
+    console.log("\n===== COMPREHENSIVE P&L CALCULATION =====");
+    
+    // Get portfolio metrics for active positions
     const metrics = await this.getPortfolioMetrics();
+    console.log(`Active Positions: ${(await this.getAllActivePositions()).length}`);
+    
+    // Get P&L from closed positions (historical record from positions table)
     const closedPositionsPnL = await this.getTotalClosedPositionsPnL();
+    
+    // Get the count of closed positions
+    const closedPositionsCount = this.db.prepare(`
+      SELECT COUNT(*) as count FROM positions WHERE status = 'CLOSED'
+    `).get() as { count: number };
+    console.log(`Closed Positions: ${closedPositionsCount.count}`);
+    
     // Get normalized trades P&L (already divided by 1,000,000)
     const tradePnL = await this.getTotalTradesPnL(true);
     
@@ -624,11 +697,18 @@ export class PositionManager {
     const activePnLScaled = metrics.profitLoss / 1000000;
     const closedPositionsPnLScaled = closedPositionsPnL / 1000000;
     
-    // Log the individual components for debugging
-    console.log(`Active positions P&L: $${activePnLScaled.toFixed(4)}`);
-    console.log(`Closed positions P&L: $${closedPositionsPnLScaled.toFixed(4)}`);
-    console.log(`Trades P&L: $${tradePnL.toFixed(4)}`);
-    console.log(`Total P&L: $${(activePnLScaled + tradePnL).toFixed(4)}`);
+    // Log the individual components with more detail
+    console.log(`\nCOMPONENTS OF TOTAL P&L:`);
+    console.log(`1. Active positions P&L: $${activePnLScaled.toFixed(4)}`);
+    console.log(`2. Closed positions P&L: $${closedPositionsPnLScaled.toFixed(4)} (from positions table)`);
+    console.log(`3. Trades P&L:           $${tradePnL.toFixed(4)} (from trades table)`);
+    
+    // Calculate final total 
+    const totalPnL = activePnLScaled + tradePnL;
+    console.log(`\nFINAL CALCULATION:`);
+    console.log(`Total P&L = Active P&L + Trades P&L = $${activePnLScaled.toFixed(4)} + $${tradePnL.toFixed(4)} = $${totalPnL.toFixed(4)}`);
+    console.log(`Note: Closed positions P&L ($${closedPositionsPnLScaled.toFixed(4)}) is not added to prevent double-counting`);
+    console.log("=========================================\n");
     
     return {
       activePnL: activePnLScaled,
