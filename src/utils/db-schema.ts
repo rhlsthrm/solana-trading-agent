@@ -7,8 +7,10 @@ export const tradingSchema = `
     amount NUMERIC NOT NULL,
     entry_price NUMERIC NOT NULL,
     current_price NUMERIC,
+    highest_price NUMERIC,
     last_updated INTEGER NOT NULL,
     profit_loss NUMERIC,
+    trailing_stop_percentage NUMERIC DEFAULT 20,
     status TEXT CHECK (status IN ('ACTIVE', 'CLOSED', 'LIQUIDATED'))
   );
 

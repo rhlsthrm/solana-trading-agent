@@ -11,7 +11,7 @@ export class JupiterService {
   // Price cache to reduce API calls
   private priceCache: Map<string, { price: number; timestamp: number }> =
     new Map();
-  private readonly PRICE_CACHE_TTL = 2 * 60 * 1000; // 2 minutes cache validity
+  private readonly PRICE_CACHE_TTL = 60 * 1000; // 2 minutes cache validity
 
   // Token info cache
   private tokenInfoCache: Map<string, { info: TokenInfo; timestamp: number }> =

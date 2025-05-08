@@ -10,7 +10,7 @@ import {
 import { initializeDatabase as initDb } from "./utils/db-schema";
 
 // Default check interval (in milliseconds)
-const DEFAULT_CHECK_INTERVAL = 2 * 60 * 1000; // 2 minutes - balanced frequency for resources
+const DEFAULT_CHECK_INTERVAL = 60 * 1000;
 
 async function initializeDatabase(): Promise<Database.Database> {
   // Use environment variable DB_PATH or fallback to default path
@@ -94,7 +94,7 @@ async function runCheck(positionManager: PositionManager) {
       const profitLossPercentage = entryValue > 0 ? (profitLoss / entryValue) * 100 : 0;
 
       // Only log warnings for positions approaching thresholds
-      if (profitLossPercentage < -10 && profitLossPercentage > -15) {
+      if (profitLossPercentage < -10 && profitLossPercentage > -20) {
         console.log(`⚠️ Position ${position.id.substring(0,8)} approaching stop-loss (${profitLossPercentage.toFixed(2)}%)`);
       } else if (profitLossPercentage > 25 && profitLossPercentage < 30) {
         console.log(`⚠️ Position ${position.id.substring(0,8)} approaching take-profit (${profitLossPercentage.toFixed(2)}%)`);

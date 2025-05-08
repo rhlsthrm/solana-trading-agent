@@ -11,9 +11,11 @@ export interface Position {
   amount: number;
   entryPrice: number;
   currentPrice: number | null;
+  highestPrice: number | null;
   lastUpdated: number;
   profitLoss: number | null;
   status: "ACTIVE" | "CLOSED" | "LIQUIDATED";
+  trailingStopPercentage: number;
 }
 
 export interface PositionMetrics {
@@ -41,12 +43,53 @@ export class PositionManager {
   private initializeDatabase() {
     // Use the imported schema
     this.db.exec(tradingSchema);
+    
+    // Run migrations for existing data
+    this.migrateExistingPositions();
+  }
+  
+  private migrateExistingPositions() {
+    try {
+      // Check if there are any positions that need migration
+      const positionsNeedingMigration = this.db.prepare(`
+        SELECT id, current_price 
+        FROM positions 
+        WHERE highest_price IS NULL OR trailing_stop_percentage IS NULL
+      `).all() as { id: string; current_price: number | null }[];
+      
+      if (positionsNeedingMigration.length > 0) {
+        console.log(`Migrating ${positionsNeedingMigration.length} positions to add trailing stop support...`);
+        
+        // Start a transaction for the migration
+        this.db.exec("BEGIN TRANSACTION");
+        
+        const updateStmt = this.db.prepare(`
+          UPDATE positions
+          SET 
+            highest_price = COALESCE(highest_price, current_price, entry_price),
+            trailing_stop_percentage = COALESCE(trailing_stop_percentage, 20)
+          WHERE id = ?
+        `);
+        
+        for (const position of positionsNeedingMigration) {
+          updateStmt.run(position.id);
+        }
+        
+        this.db.exec("COMMIT");
+        console.log("Migration completed successfully");
+      }
+    } catch (error) {
+      // Rollback in case of error
+      this.db.exec("ROLLBACK");
+      console.error("Error migrating existing positions:", error);
+    }
   }
 
   async createPosition(params: {
     tokenAddress: string;
     amount: number;
     entryPrice: number;
+    trailingStopPercentage?: number;
   }): Promise<Position> {
     console.log(
       `Creating position for ${params.tokenAddress} with amount ${params.amount} and entry price ${params.entryPrice}`
@@ -60,9 +103,11 @@ export class PositionManager {
       amount: params.amount,
       entryPrice: params.entryPrice,
       currentPrice: params.entryPrice,
+      highestPrice: params.entryPrice,
       lastUpdated: Date.now(),
       profitLoss: 0,
       status: "ACTIVE",
+      trailingStopPercentage: params.trailingStopPercentage || 20,
     };
 
     this.db
@@ -74,10 +119,12 @@ export class PositionManager {
         amount,
         entry_price,
         current_price,
+        highest_price,
         last_updated,
         profit_loss,
-        status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        status,
+        trailing_stop_percentage
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
       )
       .run(
@@ -86,9 +133,11 @@ export class PositionManager {
         position.amount,
         position.entryPrice,
         position.currentPrice,
+        position.highestPrice,
         position.lastUpdated,
         position.profitLoss,
-        position.status
+        position.status,
+        position.trailingStopPercentage
       );
 
     return position;
@@ -102,9 +151,11 @@ export class PositionManager {
       amount,
       entry_price as entryPrice,
       current_price as currentPrice,
+      highest_price as highestPrice,
       last_updated as lastUpdated,
       profit_loss as profitLoss,
-      status
+      status,
+      trailing_stop_percentage as trailingStopPercentage
     FROM positions 
     WHERE id = ?
   `);
@@ -122,9 +173,11 @@ export class PositionManager {
       amount,
       entry_price as entryPrice,
       current_price as currentPrice,
+      highest_price as highestPrice,
       last_updated as lastUpdated,
       profit_loss as profitLoss,
-      status
+      status,
+      trailing_stop_percentage as trailingStopPercentage
     FROM positions 
     WHERE token_address = ? 
     AND status = 'ACTIVE'
@@ -143,9 +196,11 @@ export class PositionManager {
       amount,
       entry_price as entryPrice,
       current_price as currentPrice,
+      highest_price as highestPrice,
       last_updated as lastUpdated,
       profit_loss as profitLoss,
-      status
+      status,
+      trailing_stop_percentage as trailingStopPercentage
     FROM positions 
     WHERE status = 'ACTIVE'
   `);
@@ -163,9 +218,11 @@ export class PositionManager {
     SET 
       amount = ?,
       current_price = ?,
+      highest_price = ?,
       last_updated = ?,
       profit_loss = ?,
-      status = ?
+      status = ?,
+      trailing_stop_percentage = ?
     WHERE id = ?
   `);
 
@@ -181,9 +238,11 @@ export class PositionManager {
     this.updatePositionStmt.run(
       updatedPosition.amount,
       updatedPosition.currentPrice,
+      updatedPosition.highestPrice,
       Date.now(),
       updatedPosition.profitLoss,
       updatedPosition.status,
+      updatedPosition.trailingStopPercentage,
       id
     );
 
@@ -346,7 +405,7 @@ export class PositionManager {
 
           // Positions approaching stop-loss or take-profit thresholds get priority
           const approachingThreshold =
-            (profitLossPercentage < -10 && profitLossPercentage > -15) || // Approaching stop-loss
+            (profitLossPercentage < -10 && profitLossPercentage > -20) || // Approaching stop-loss
             (profitLossPercentage > 25 && profitLossPercentage < 30); // Approaching take-profit
 
           if (approachingThreshold) {
@@ -405,10 +464,6 @@ export class PositionManager {
         );
       }
 
-      // Get the number of decimal places for this token (default to 6)
-      const tokenDecimals =
-        tokenInfo && tokenInfo.decimals ? tokenInfo.decimals : 6;
-
       // Calculate profit/loss using the amount without decimal normalization
       const currentValue = position.amount * currentPrice;
       const entryValue = position.amount * position.entryPrice;
@@ -418,17 +473,25 @@ export class PositionManager {
       const profitLossPercentage =
         entryValue > 0 ? (profitLoss / entryValue) * 100 : 0;
 
-      // No logging for regular price updates
+      // Determine if this is a new highest price
+      let highestPrice = position.highestPrice || position.entryPrice;
+      if (currentPrice > highestPrice) {
+        highestPrice = currentPrice;
+        console.log(
+          `📈 New highest price for ${position.tokenAddress}: ${currentPrice}`
+        );
+      }
 
-      // Update position
+      // Update position with new price info
       await this.updatePosition(position.id, {
         currentPrice: currentPrice,
+        highestPrice: highestPrice,
         profitLoss,
         lastUpdated: Date.now(),
       });
 
-      // Check for stop loss (example: -15%)
-      if (profitLossPercentage < -15) {
+      // Check for stop loss (fixed at -20%)
+      if (profitLossPercentage < -20) {
         console.log(
           `⚠️ Stop loss triggered for position ${
             position.id
@@ -448,28 +511,34 @@ export class PositionManager {
             `❌ Failed to execute stop loss for position ${position.id}`
           );
         }
+        return; // Exit early after closing the position
       }
 
-      // Check for take profit (example: +30%)
-      if (profitLossPercentage > 30) {
-        console.log(
-          `🎯 Take profit triggered for position ${
-            position.id
-          } (${profitLossPercentage.toFixed(2)}%)`
-        );
-
-        // Execute take profit by closing the position
-        const success = await this.closePosition(position.id);
-        if (success) {
+      // Check for trailing stop
+      if (highestPrice > 0 && currentPrice > 0) {
+        // Calculate percentage drop from highest price
+        const dropPercentage = ((highestPrice - currentPrice) / highestPrice) * 100;
+        
+        // Get trailing stop percentage (default to 20% if not set)
+        const trailingStopPercentage = position.trailingStopPercentage || 20;
+        
+        // If price has dropped below trailing stop threshold
+        if (dropPercentage >= trailingStopPercentage) {
           console.log(
-            `✅ Take profit executed for position ${
-              position.id
-            } at ${profitLossPercentage.toFixed(2)}%`
+            `🔻 Trailing stop triggered for position ${position.id} (${dropPercentage.toFixed(2)}% drop from highest price)`
           );
-        } else {
-          console.error(
-            `❌ Failed to execute take profit for position ${position.id}`
-          );
+          
+          // Execute trailing stop by closing the position
+          const success = await this.closePosition(position.id);
+          if (success) {
+            console.log(
+              `✅ Trailing stop executed for position ${position.id}. Highest: ${highestPrice}, Current: ${currentPrice}, Drop: ${dropPercentage.toFixed(2)}%`
+            );
+          } else {
+            console.error(
+              `❌ Failed to execute trailing stop for position ${position.id}`
+            );
+          }
         }
       }
     } catch (error) {
@@ -523,7 +592,7 @@ export class PositionManager {
       const result = this.db.prepare(`
         SELECT SUM(profit_loss) as total_pnl 
         FROM positions 
-        WHERE status = 'CLOSED'
+        WHERE status = 'CLOSED' AND exit_time IS NOT NULL AND exit_time > 0
       `).get() as { total_pnl: number | null };
       
       return result.total_pnl || 0;
@@ -542,7 +611,7 @@ export class PositionManager {
       const result = this.db.prepare(`
         SELECT SUM(profit_loss) as total_pnl 
         FROM trades 
-        WHERE status = 'CLOSED'
+        WHERE status = 'CLOSED' AND exit_time IS NOT NULL AND exit_time > 0
       `).get() as { total_pnl: number | null };
       
       const rawPnL = result.total_pnl || 0;
