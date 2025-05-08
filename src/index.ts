@@ -205,7 +205,6 @@ async function main() {
           // First, try to get the wallet address using the getAddress method
           if (walletClient.getAddress) {
             walletAddress = walletClient.getAddress();
-            console.log(`Using wallet address from getAddress(): ${walletAddress}`);
           }
           
           // Get public key object for balance checking
@@ -214,12 +213,10 @@ async function main() {
           // Method 1: Direct publicKey property
           if (walletClient.publicKey) {
             publicKey = walletClient.publicKey;
-            console.log(`Using direct publicKey property: ${publicKey.toString()}`);
           } 
           // Method 2: From keypair
           else if (walletClient.keypair && walletClient.keypair.publicKey) {
             publicKey = walletClient.keypair.publicKey;
-            console.log(`Using keypair.publicKey: ${publicKey.toString()}`);
           }
           // Method 3: From address string using PublicKey constructor
           else if (walletAddress && walletAddress !== "Unknown") {
@@ -227,7 +224,6 @@ async function main() {
               // Convert address string to PublicKey object
               const { PublicKey } = await import('@solana/web3.js');
               publicKey = new PublicKey(walletAddress);
-              console.log(`Created PublicKey from address string: ${publicKey.toString()}`);
             } catch (e) {
               console.error(`Failed to create PublicKey from address: ${walletAddress}`, e);
             }
@@ -238,7 +234,6 @@ async function main() {
               const value = walletClient[key];
               if (value && typeof value === 'object' && value.toBase58) {
                 publicKey = value;
-                console.log(`Found publicKey-like object in property '${key}': ${publicKey.toString()}`);
                 break;
               }
             }
@@ -246,10 +241,8 @@ async function main() {
           
           // If we found a public key, try to get the balance
           if (publicKey) {
-            console.log(`Fetching SOL balance for: ${publicKey.toString()}`);
             solBalance = await connection.getBalance(publicKey);
             solBalanceInSol = solBalance / 10**9; // Convert lamports to SOL
-            console.log(`SOL balance: ${solBalanceInSol} SOL (${solBalance} lamports)`);
           } else {
             console.warn("No publicKey available to fetch SOL balance");
           }

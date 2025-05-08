@@ -27,7 +27,6 @@ export interface PositionMetrics {
 
 export interface ProfitLossData {
   activePnL: number;
-  closedPositionsPnL: number;
   tradePnL: number;
   totalPnL: number;
 }
@@ -590,8 +589,6 @@ export class PositionManager {
         entry_price: number;
       }[];
       
-      console.log("\n===== DETAILED CLOSED POSITIONS P&L =====");
-      console.log(`Found ${closedPositions.length} closed positions in database`);
       let totalPnLCalculation = 0;
       
       closedPositions.forEach((position, index) => {
@@ -599,7 +596,6 @@ export class PositionManager {
         totalPnLCalculation += normalizedPnL;
         const date = position.exit_time ? new Date(position.exit_time).toLocaleString() : 'Unknown';
         const amount = position.amount / 1000000; // Normalize amount for display
-        console.log(`Position #${index+1}: ID=${position.id.substring(0,8)}... Token=${position.token_address.substring(0,8)}... Amount=${amount.toFixed(6)} Entry=$${position.entry_price} P&L=$${normalizedPnL.toFixed(6)} Date=${date}`);
       });
       
       // Use a SQL statement that doesn't reference exit_time directly
@@ -611,11 +607,6 @@ export class PositionManager {
       `).get() as { total_pnl: number | null };
       
       const totalPnL = result.total_pnl || 0;
-      const normalizedTotalPnL = totalPnL / 1000000;
-      
-      console.log(`Individual positions sum: $${totalPnLCalculation.toFixed(6)}`);
-      console.log(`Database query sum:       $${normalizedTotalPnL.toFixed(6)}`);
-      console.log("=========================================\n");
       
       return totalPnL;
     } catch (error) {
@@ -628,7 +619,7 @@ export class PositionManager {
    * Get the total profit/loss from all completed trades
    * @param normalized Whether to normalize the P&L by dividing by 1,000,000 (default: true)
    */
-  async getTotalTradesPnL(normalized = true): Promise<number> {
+  async getTotalTradesPnL(): Promise<number> {
     try {
       // Get all closed trades
       const allTrades = this.db.prepare(`
@@ -685,11 +676,7 @@ export class PositionManager {
   async getComprehensivePnL(): Promise<ProfitLossData> {
     // Get portfolio metrics for active positions
     const metrics = await this.getPortfolioMetrics();
-    
-    // Get P&L from closed positions (historical record)
-    const closedPositionsPnL = await this.getTotalClosedPositionsPnL();
-    const closedPositionsPnLScaled = closedPositionsPnL / 1000000;
-    
+        
     // Get trades P&L calculated directly from prices (consistent with dashboard)
     const tradePnL = await this.getTotalTradesPnL();
     
@@ -699,14 +686,9 @@ export class PositionManager {
     // Calculate total P&L
     const totalPnL = activePnLScaled + tradePnL;
     
-    // Log simple summary
-    console.log(`Active positions P&L: $${activePnLScaled.toFixed(4)}`);
-    console.log(`Trades P&L: $${tradePnL.toFixed(4)}`);
-    console.log(`Total P&L: $${totalPnL.toFixed(4)}`);
     
     return {
       activePnL: activePnLScaled,
-      closedPositionsPnL: closedPositionsPnLScaled,
       tradePnL: tradePnL,
       totalPnL: totalPnL
     };
