@@ -570,7 +570,7 @@ export class PositionManager {
       const result = this.db.prepare(`
         SELECT SUM(profit_loss) as total_pnl 
         FROM positions 
-        WHERE status = 'CLOSED' AND exit_time IS NOT NULL AND exit_time > 0
+        WHERE status = 'CLOSED'
       `).get() as { total_pnl: number | null };
       
       return result.total_pnl || 0;
@@ -589,7 +589,7 @@ export class PositionManager {
       const result = this.db.prepare(`
         SELECT SUM(profit_loss) as total_pnl 
         FROM trades 
-        WHERE status = 'CLOSED' AND exit_time IS NOT NULL AND exit_time > 0
+        WHERE status = 'CLOSED'
       `).get() as { total_pnl: number | null };
       
       const rawPnL = result.total_pnl || 0;
