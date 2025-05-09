@@ -44,7 +44,7 @@ export class PositionManager {
     try {
       // First ensure the base schema exists
       this.db.exec(tradingSchema);
-      
+
       // Then run migrations to add any missing columns and update existing data
       runMigrations(this.db);
     } catch (error) {
@@ -306,9 +306,9 @@ export class PositionManager {
 
         // Calculate final profit/loss
         const finalValue = Number(result.outputAmount);
-        const entryValue = position.amount * position.entryPrice;        
+        const entryValue = position.amount * position.entryPrice;
         const profitLoss = finalValue - entryValue;
-        
+
         // Record the transaction in the trades table
         this.db
           .prepare(
@@ -345,13 +345,17 @@ export class PositionManager {
           profitLoss: profitLoss,
           currentPrice: tokenInfo.price,
         });
-        
+
         // Set exit_time directly in positions table
-        this.db.prepare(`
+        this.db
+          .prepare(
+            `
           UPDATE positions 
           SET exit_time = ? 
           WHERE id = ?
-        `).run(currentTime, id);
+        `
+          )
+          .run(currentTime, id);
 
         // Commit the transaction
         this.db.exec("COMMIT");
@@ -502,22 +506,29 @@ export class PositionManager {
       // Check for trailing stop
       if (highestPrice > 0 && currentPrice > 0) {
         // Calculate percentage drop from highest price
-        const dropPercentage = ((highestPrice - currentPrice) / highestPrice) * 100;
-        
+        const dropPercentage =
+          ((highestPrice - currentPrice) / highestPrice) * 100;
+
         // Get trailing stop percentage (default to 20% if not set)
         const trailingStopPercentage = position.trailingStopPercentage || 20;
-        
+
         // If price has dropped below trailing stop threshold
         if (dropPercentage >= trailingStopPercentage) {
           console.log(
-            `🔻 Trailing stop triggered for position ${position.id} (${dropPercentage.toFixed(2)}% drop from highest price)`
+            `🔻 Trailing stop triggered for position ${
+              position.id
+            } (${dropPercentage.toFixed(2)}% drop from highest price)`
           );
-          
+
           // Execute trailing stop by closing the position
           const success = await this.closePosition(position.id);
           if (success) {
             console.log(
-              `✅ Trailing stop executed for position ${position.id}. Highest: ${highestPrice}, Current: ${currentPrice}, Drop: ${dropPercentage.toFixed(2)}%`
+              `✅ Trailing stop executed for position ${
+                position.id
+              }. Highest: ${highestPrice}, Current: ${currentPrice}, Drop: ${dropPercentage.toFixed(
+                2
+              )}%`
             );
           } else {
             console.error(
@@ -551,15 +562,52 @@ export class PositionManager {
 
     for (const position of positions) {
       if (position.currentPrice !== null) {
-        // Calculate using the amount as is - since we're storing raw amounts
-        const value = position.amount * position.currentPrice;
-        totalValue += value;
-        totalProfitLoss += position.profitLoss || 0;
+        try {
+          // Get token decimals from the database
+          const tokenRecord = this.db.prepare(`
+            SELECT decimals FROM tokens WHERE address = ?
+          `).get(position.tokenAddress) as { decimals?: number } | undefined;
+
+          // Use default of 9 decimals if not found
+          const tokenDecimals = tokenRecord?.decimals || 9;
+
+          // Normalize amount using token-specific decimals (same as in dashboard)
+          const { normalizeTokenAmount } = await import("../utils/token");
+          const normalizedAmount = normalizeTokenAmount(position.amount, tokenDecimals);
+
+          // Calculate value using normalized amount
+          const currentValue = normalizedAmount * position.currentPrice;
+          const entryValue = normalizedAmount * position.entryPrice;
+          const positionProfitLoss = currentValue - entryValue;
+
+          // Add to totals
+          totalValue += currentValue;
+          totalProfitLoss += positionProfitLoss;
+        } catch (error) {
+          console.error(`Error calculating position metrics for ${position.tokenAddress}:`, error);
+        }
       }
     }
 
+    // Calculate total entry value for percentage calculation (matching dashboard.ejs)
+    let totalEntryValue = 0;
+    for (const position of positions) {
+      try {
+        const tokenRecord = this.db.prepare(`
+          SELECT decimals FROM tokens WHERE address = ?
+        `).get(position.tokenAddress) as { decimals?: number } | undefined;
+        const tokenDecimals = tokenRecord?.decimals || 9;
+        const { normalizeTokenAmount } = await import("../utils/token");
+        const normalizedAmount = normalizeTokenAmount(position.amount, tokenDecimals);
+        totalEntryValue += normalizedAmount * position.entryPrice;
+      } catch (error) {
+        // Ignore errors for percentage calculation
+      }
+    }
+
+    // Calculate percentage based on total entry value (matching dashboard.ejs)
     const profitLossPercentage =
-      totalValue > 0 ? (totalProfitLoss / totalValue) * 100 : 0;
+      totalEntryValue > 0 ? (totalProfitLoss / totalEntryValue) * 100 : 0;
 
     return {
       totalValue,
@@ -567,7 +615,7 @@ export class PositionManager {
       profitLossPercentage,
     };
   }
-  
+
   /**
    * Get the total profit/loss from all closed positions
    * Note: This provides a historical record of P&L from the positions table
@@ -575,46 +623,59 @@ export class PositionManager {
   async getTotalClosedPositionsPnL(): Promise<number> {
     try {
       // Get all closed positions with details for logging
-      const closedPositions = this.db.prepare(`
+      const closedPositions = this.db
+        .prepare(
+          `
         SELECT id, token_address, profit_loss, exit_time, amount, entry_price
         FROM positions 
         WHERE status = 'CLOSED'
         ORDER BY exit_time DESC
-      `).all() as { 
-        id: string; 
-        token_address: string; 
-        profit_loss: number; 
+      `
+        )
+        .all() as {
+        id: string;
+        token_address: string;
+        profit_loss: number;
         exit_time: number;
         amount: number;
         entry_price: number;
       }[];
-      
+
       let totalPnLCalculation = 0;
-      
+
       closedPositions.forEach((position, index) => {
         const normalizedPnL = position.profit_loss / 1000000;
         totalPnLCalculation += normalizedPnL;
-        const date = position.exit_time ? new Date(position.exit_time).toLocaleString() : 'Unknown';
+        const date = position.exit_time
+          ? new Date(position.exit_time).toLocaleString()
+          : "Unknown";
         const amount = position.amount / 1000000; // Normalize amount for display
       });
-      
+
       // Use a SQL statement that doesn't reference exit_time directly
       // to avoid dependency on this column existing
-      const result = this.db.prepare(`
+      const result = this.db
+        .prepare(
+          `
         SELECT SUM(profit_loss) as total_pnl 
         FROM positions 
         WHERE status = 'CLOSED'
-      `).get() as { total_pnl: number | null };
-      
+      `
+        )
+        .get() as { total_pnl: number | null };
+
       const totalPnL = result.total_pnl || 0;
-      
+
       return totalPnL;
     } catch (error) {
-      console.error("Error calculating total P&L from closed positions:", error);
+      console.error(
+        "Error calculating total P&L from closed positions:",
+        error
+      );
       return 0;
     }
   }
-  
+
   /**
    * Get the total profit/loss from all completed trades
    * @param normalized Whether to normalize the P&L by dividing by 1,000,000 (default: true)
@@ -622,53 +683,61 @@ export class PositionManager {
   async getTotalTradesPnL(): Promise<number> {
     try {
       // Get all closed trades
-      const allTrades = this.db.prepare(`
+      const allTrades = this.db
+        .prepare(
+          `
         SELECT token_address, position_size, entry_price, exit_price 
         FROM trades 
         WHERE status = 'CLOSED'
-      `).all() as { 
-        token_address: string; 
+      `
+        )
+        .all() as {
+        token_address: string;
         position_size: number;
         entry_price: number;
         exit_price: number;
       }[];
-      
+
       // Calculate P&L the same way as the dashboard does
       let totalPnL = 0;
-      
+
       for (const trade of allTrades) {
         // Get token decimals (same as in dashboard)
         let decimals = 9; // Default
         try {
-          const tokenRecord = this.db.prepare(`
+          const tokenRecord = this.db
+            .prepare(
+              `
             SELECT decimals FROM tokens WHERE address = ?
-          `).get(trade.token_address) as { decimals?: number } | undefined;
-          
+          `
+            )
+            .get(trade.token_address) as { decimals?: number } | undefined;
+
           if (tokenRecord && tokenRecord.decimals) {
             decimals = tokenRecord.decimals;
           }
         } catch (error) {
           // Use default decimals if error
         }
-        
+
         // Normalize amount (same as in dashboard)
         const normalizedAmount = trade.position_size / Math.pow(10, decimals);
-        
+
         // Calculate P&L directly (same as in dashboard)
         const entryValue = normalizedAmount * trade.entry_price;
         const exitValue = normalizedAmount * trade.exit_price;
         const tradePnL = exitValue - entryValue;
-        
+
         totalPnL += tradePnL;
       }
-      
+
       return totalPnL;
     } catch (error) {
       console.error("Error calculating total P&L from trades:", error);
       return 0;
     }
   }
-  
+
   /**
    * Get comprehensive profit/loss data from all sources
    * This combines active positions, closed positions, and trades
@@ -676,19 +745,15 @@ export class PositionManager {
   async getComprehensivePnL(): Promise<ProfitLossData> {
     // Get portfolio metrics for active positions
     const metrics = await this.getPortfolioMetrics();
-        
+
     // Get trades P&L calculated directly from prices (consistent with dashboard)
     const tradePnL = await this.getTotalTradesPnL();
-    
-    // Scale active positions P&L
-    const activePnLScaled = metrics.profitLoss / 1000000;
-    
+
     // Calculate total P&L
-    const totalPnL = activePnLScaled + tradePnL;
-    
-    
+    const totalPnL = metrics.profitLoss + tradePnL;
+
     return {
-      activePnL: activePnLScaled,
+      activePnL: metrics.profitLoss,
       tradePnL: tradePnL,
       totalPnL: totalPnL
     };

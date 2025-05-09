@@ -10,7 +10,11 @@ import { createJupiterService } from "./services/JupiterService";
 import { createPositionManager, Position } from "./services/PositionManager";
 import { Connection } from "@solana/web3.js";
 import { SolanaWalletClient } from "./types/trade";
-import { formatCurrency, formatTokenAmount, normalizeTokenAmount } from "./utils/token";
+import {
+  formatCurrency,
+  formatTokenAmount,
+  normalizeTokenAmount,
+} from "./utils/token";
 import { initializeDatabase as initDb } from "./utils/db-schema";
 import fs from "fs";
 
@@ -29,7 +33,7 @@ let tokenCache: Record<string, any> = {};
 async function initializeDatabase(): Promise<Database.Database> {
   const dbPath = process.env.DB_PATH;
   console.log(`Connecting to database at ${dbPath}...`);
-  
+
   const sqliteDb = new Database(dbPath, {
     verbose: process.env.DEBUG ? console.log : undefined,
   });
@@ -48,7 +52,9 @@ async function initializeDatabase(): Promise<Database.Database> {
 function truncateAddress(address: string, start = 6, end = 4): string {
   if (!address) return "";
   if (address.length <= start + end) return address;
-  return `${address.substring(0, start)}...${address.substring(address.length - end)}`;
+  return `${address.substring(0, start)}...${address.substring(
+    address.length - end
+  )}`;
 }
 
 /**
@@ -58,40 +64,42 @@ async function main() {
   try {
     // Initialize services
     db = await initializeDatabase();
-    
+
     // Initialize wallet
     const walletData = await initializeWalletWithConnection();
     walletClient = walletData.walletClient;
     connection = walletData.connection;
-    
+
     // Log more detailed wallet initialization info for debugging
     console.log("Wallet initialized successfully");
-    
+
     // Check if we can access the wallet's public key and log it
     try {
-      const walletAddress = walletClient.getAddress ? walletClient.getAddress() : "Unknown";
+      const walletAddress = walletClient.getAddress
+        ? walletClient.getAddress()
+        : "Unknown";
       console.log(`Wallet address: ${walletAddress}`);
-      
+
       // Check for direct publicKey property
       if (walletClient.publicKey) {
-        console.log(`Public key available: ${walletClient.publicKey.toString()}`);
+        console.log(
+          `Public key available: ${walletClient.publicKey.toString()}`
+        );
       } else if (walletClient.keypair && walletClient.keypair.publicKey) {
-        console.log(`Public key from keypair: ${walletClient.keypair.publicKey.toString()}`);
+        console.log(
+          `Public key from keypair: ${walletClient.keypair.publicKey.toString()}`
+        );
       } else {
         console.log("No public key directly accessible on wallet client");
       }
     } catch (error) {
       console.error("Error accessing wallet details:", error);
     }
-    
+
     jupiterService = createJupiterService();
-    
+
     // Create position manager
-    positionManager = createPositionManager(
-      db,
-      jupiterService,
-      walletClient
-    );
+    positionManager = createPositionManager(db, jupiterService, walletClient);
 
     // Initialize Express app
     const app = express();
@@ -108,64 +116,84 @@ async function main() {
       try {
         // Get all token addresses from both positions and trades tables
         const positions = await positionManager.getAllActivePositions();
-        const recentTrades = db.prepare(`
+        const recentTrades = db
+          .prepare(
+            `
           SELECT * FROM trades 
           ORDER BY exit_time DESC 
           LIMIT 10
-        `).all();
+        `
+          )
+          .all();
 
         const tokenAddresses = new Set<string>();
-        
-        positions.forEach((pos: Position) => tokenAddresses.add(pos.tokenAddress));
-        recentTrades.forEach((trade: any) => tokenAddresses.add(trade.token_address));
-        
+
+        positions.forEach((pos: Position) =>
+          tokenAddresses.add(pos.tokenAddress)
+        );
+        recentTrades.forEach((trade: any) =>
+          tokenAddresses.add(trade.token_address)
+        );
+
         // Get token info for each unique address
         for (const address of tokenAddresses) {
           if (!tokenCache[address]) {
             try {
               // First try to get from the tokens table
-              const tokenRecord = db.prepare(`
+              const tokenRecord = db
+                .prepare(
+                  `
                 SELECT symbol, name, decimals FROM tokens WHERE address = ?
-              `).get(address) as { symbol: string; name?: string; decimals?: number } | undefined;
-              
+              `
+                )
+                .get(address) as
+                | { symbol: string; name?: string; decimals?: number }
+                | undefined;
+
               if (tokenRecord && tokenRecord.symbol) {
-                tokenCache[address] = { 
-                  symbol: tokenRecord.symbol, 
+                tokenCache[address] = {
+                  symbol: tokenRecord.symbol,
                   name: tokenRecord.name || tokenRecord.symbol,
-                  decimals: tokenRecord.decimals || 9
+                  decimals: tokenRecord.decimals || 9,
                 };
               } else {
                 // If not in DB, try to get from Jupiter
                 const tokenInfo = await jupiterService.getTokenInfo(address);
                 if (tokenInfo?.symbol) {
-                  tokenCache[address] = { 
-                    symbol: tokenInfo.symbol, 
+                  tokenCache[address] = {
+                    symbol: tokenInfo.symbol,
                     name: tokenInfo.name,
-                    decimals: tokenInfo.decimals || 9
+                    decimals: tokenInfo.decimals || 9,
                   };
-                  
+
                   // Store in DB for future use (including new name field and decimals)
-                  db.prepare(`
+                  db.prepare(
+                    `
                     INSERT OR REPLACE INTO tokens (address, symbol, name, decimals, last_updated) 
                     VALUES (?, ?, ?, ?, unixepoch())
-                  `).run(
-                    address, 
-                    tokenInfo.symbol, 
+                  `
+                  ).run(
+                    address,
+                    tokenInfo.symbol,
                     tokenInfo.name || tokenInfo.symbol,
-                    tokenInfo.decimals || 9  
+                    tokenInfo.decimals || 9
                   );
                 } else {
                   // If all else fails, use address substring as fallback
-                  tokenCache[address] = { 
-                    symbol: address.substring(0, 5), 
+                  tokenCache[address] = {
+                    symbol: address.substring(0, 5),
                     name: address.substring(0, 8),
-                    decimals: 9
+                    decimals: 9,
                   };
                 }
               }
             } catch (error) {
               console.error(`Error fetching token info for ${address}:`, error);
-              tokenCache[address] = { symbol: "???", name: "Unknown", decimals: 9 };
+              tokenCache[address] = {
+                symbol: "???",
+                name: "Unknown",
+                decimals: 9,
+              };
             }
           }
         }
@@ -179,41 +207,47 @@ async function main() {
       try {
         // Update position prices
         await positionManager.updatePricesAndProfitLoss();
-        
+
         // Get active positions
         const positions = await positionManager.getAllActivePositions();
-        
+
         // Sort positions by profit/loss percentage (descending)
         positions.sort((a: Position, b: Position) => {
-          const aPerc = a.profitLoss !== null ? (a.profitLoss / (a.amount * a.entryPrice)) * 100 : -Infinity;
-          const bPerc = b.profitLoss !== null ? (b.profitLoss / (b.amount * b.entryPrice)) * 100 : -Infinity;
+          const aPerc =
+            a.profitLoss !== null
+              ? (a.profitLoss / (a.amount * a.entryPrice)) * 100
+              : -Infinity;
+          const bPerc =
+            b.profitLoss !== null
+              ? (b.profitLoss / (b.amount * b.entryPrice)) * 100
+              : -Infinity;
           return bPerc - aPerc;
         });
-        
-        // Get portfolio metrics
+
+        // Get portfolio metrics (now calculated correctly using token-specific decimals)
         const metrics = await positionManager.getPortfolioMetrics();
-        
+
         // Get comprehensive P&L data from all sources
         const pnlData = await positionManager.getComprehensivePnL();
-        
+
         // Get SOL balance
         let solBalance = 0;
         let solBalanceInSol = 0;
         let walletAddress = "Unknown";
-        
+
         try {
           // First, try to get the wallet address using the getAddress method
           if (walletClient.getAddress) {
             walletAddress = walletClient.getAddress();
           }
-          
+
           // Get public key object for balance checking
           let publicKey = null;
-          
+
           // Method 1: Direct publicKey property
           if (walletClient.publicKey) {
             publicKey = walletClient.publicKey;
-          } 
+          }
           // Method 2: From keypair
           else if (walletClient.keypair && walletClient.keypair.publicKey) {
             publicKey = walletClient.keypair.publicKey;
@@ -222,34 +256,37 @@ async function main() {
           else if (walletAddress && walletAddress !== "Unknown") {
             try {
               // Convert address string to PublicKey object
-              const { PublicKey } = await import('@solana/web3.js');
+              const { PublicKey } = await import("@solana/web3.js");
               publicKey = new PublicKey(walletAddress);
             } catch (e) {
-              console.error(`Failed to create PublicKey from address: ${walletAddress}`, e);
+              console.error(
+                `Failed to create PublicKey from address: ${walletAddress}`,
+                e
+              );
             }
           }
           // Method 4: Try to find any property that looks like a public key
           else {
             for (const key of Object.keys(walletClient)) {
               const value = walletClient[key];
-              if (value && typeof value === 'object' && value.toBase58) {
+              if (value && typeof value === "object" && value.toBase58) {
                 publicKey = value;
                 break;
               }
             }
           }
-          
+
           // If we found a public key, try to get the balance
           if (publicKey) {
             solBalance = await connection.getBalance(publicKey);
-            solBalanceInSol = solBalance / 10**9; // Convert lamports to SOL
+            solBalanceInSol = solBalance / 10 ** 9; // Convert lamports to SOL
           } else {
             console.warn("No publicKey available to fetch SOL balance");
           }
         } catch (error) {
           console.error("Error fetching SOL balance:", error);
         }
-        
+
         // Get latest SOL price
         let solPrice = 0;
         try {
@@ -259,48 +296,55 @@ async function main() {
         } catch (error) {
           console.error("Error fetching SOL price:", error);
         }
-        
+
         // Calculate SOL value in USD
         const solValueUsd = solBalanceInSol * solPrice;
-        
-        // Adjust metrics for display - use 10^6 as standard divisor for token amounts
-        // This converts the raw amounts to human-readable amounts
+
         const adjustedMetrics = {
-          totalValue: metrics.totalValue / 1000000,
-          profitLoss: metrics.profitLoss / 1000000,
+          totalValue: metrics.totalValue,
+          profitLoss: metrics.profitLoss,
           profitLossPercentage: metrics.profitLossPercentage,
           // Use the comprehensive P&L data
-          totalPnL: pnlData.totalPnL
+          totalPnL: pnlData.totalPnL,
         };
-        
+
         // Calculate total portfolio value (positions + SOL)
         const totalValueWithSol = adjustedMetrics.totalValue + solValueUsd;
-        
+
         // Get page parameter with default of 1
         const pageParam = req.query.page;
-        const page = parseInt(typeof pageParam === 'string' ? pageParam : '1') || 1;
+        const page =
+          parseInt(typeof pageParam === "string" ? pageParam : "1") || 1;
         const tradesPerPage = 20;
         const offset = (page - 1) * tradesPerPage;
 
         // Get total count of trades with valid dates for pagination
-        const totalTradesResult = db.prepare(`
+        const totalTradesResult = db
+          .prepare(
+            `
           SELECT COUNT(*) as count FROM trades 
           WHERE exit_time IS NOT NULL AND exit_time > 0
-        `).get() as { count: number };
+        `
+          )
+          .get() as { count: number };
         const totalTrades = totalTradesResult.count;
         const totalPages = Math.ceil(totalTrades / tradesPerPage);
 
         // Get recent trades with pagination, filtering out items without a valid date
-        const recentTrades = db.prepare(`
+        const recentTrades = db
+          .prepare(
+            `
           SELECT * FROM trades 
           WHERE exit_time IS NOT NULL AND exit_time > 0
           ORDER BY exit_time DESC 
           LIMIT ? OFFSET ?
-        `).all(tradesPerPage, offset);
-        
+        `
+          )
+          .all(tradesPerPage, offset);
+
         // Update token cache
         await updateTokenCache();
-        
+
         // Render the dashboard with all data
         res.render("dashboard", {
           positions,
@@ -318,7 +362,7 @@ async function main() {
           // Pagination data
           currentPage: page,
           totalPages,
-          totalTrades
+          totalTrades,
         });
       } catch (error) {
         console.error("Error rendering dashboard:", error);
@@ -331,7 +375,6 @@ async function main() {
       console.log(`🚀 Dashboard running at http://localhost:${port}`);
       console.log(`Press Ctrl+C to stop the server`);
     });
-
   } catch (error) {
     console.error("Fatal error:", error);
     process.exit(1);
