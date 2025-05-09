@@ -7,11 +7,12 @@
   <link rel="stylesheet" href="/css/style.css">
   <meta http-equiv="refresh" content="30">
   <script>
-    // Countdown timer for auto-refresh
+    // Countdown timer for auto-refresh and setup copy buttons
     window.onload = function() {
+      // Auto-refresh countdown
       let seconds = 30;
       const countdownElement = document.getElementById('countdown');
-      
+
       function updateCountdown() {
         countdownElement.textContent = seconds;
         if (seconds > 0) {
@@ -19,8 +20,33 @@
           setTimeout(updateCountdown, 1000);
         }
       }
-      
+
       updateCountdown();
+
+      // Copy button functionality
+      document.querySelectorAll('.copy-btn').forEach(button => {
+        button.addEventListener('click', function(e) {
+          e.preventDefault();
+          const address = this.dataset.address;
+
+          // Create a temporary input element to copy the text
+          const tempInput = document.createElement('input');
+          tempInput.value = address;
+          document.body.appendChild(tempInput);
+          tempInput.select();
+          document.execCommand('copy');
+          document.body.removeChild(tempInput);
+
+          // Visual feedback
+          const originalColor = this.style.color;
+          this.style.color = '#10b981'; // Success green
+
+          // Reset back after a short delay
+          setTimeout(() => {
+            this.style.color = originalColor;
+          }, 1000);
+        });
+      });
     }
   </script>
 </head>
@@ -142,8 +168,20 @@
                 <td>
                   <div class="token-cell">
                     <div>
-                      <div class="token-name"><%= tokenInfo.name || tokenInfo.symbol %></div>
-                      <div class="token-address"><%= truncateAddress(position.tokenAddress) %></div>
+                      <div class="token-name">
+                        <a href="https://birdeye.so/token/<%= position.tokenAddress %>?chain=solana" target="_blank" class="token-link">
+                          <%= tokenInfo.name || tokenInfo.symbol %>
+                        </a>
+                      </div>
+                      <div class="token-address-container">
+                        <span class="token-address" title="<%= position.tokenAddress %>"><%= truncateAddress(position.tokenAddress) %></span>
+                        <button class="copy-btn" data-address="<%= position.tokenAddress %>" title="Copy address">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                          </svg>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </td>
@@ -225,8 +263,20 @@
                 <td>
                   <div class="token-cell">
                     <div>
-                      <div class="token-name"><%= tokenInfo.name || tokenInfo.symbol %></div>
-                      <div class="token-address"><%= truncateAddress(trade.token_address) %></div>
+                      <div class="token-name">
+                        <a href="https://birdeye.so/token/<%= trade.token_address %>?chain=solana" target="_blank" class="token-link">
+                          <%= tokenInfo.name || tokenInfo.symbol %>
+                        </a>
+                      </div>
+                      <div class="token-address-container">
+                        <span class="token-address" title="<%= trade.token_address %>"><%= truncateAddress(trade.token_address) %></span>
+                        <button class="copy-btn" data-address="<%= trade.token_address %>" title="Copy address">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                          </svg>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </td>

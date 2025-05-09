@@ -157,10 +157,43 @@ tbody tr:hover {
   color: #4b5563;
 }
 
+.token-address-container {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
 .token-address {
   font-family: monospace;
   font-size: 0.75rem;
   color: #6b7280;
+}
+
+.token-link {
+  color: #4b5563;
+  text-decoration: none;
+}
+
+.token-link:hover {
+  color: #3b82f6;
+  text-decoration: underline;
+}
+
+.copy-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #9ca3af;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.1rem;
+  border-radius: 0.25rem;
+}
+
+.copy-btn:hover {
+  color: #6b7280;
+  background-color: #f3f4f6;
 }
 
 .price-cell {
