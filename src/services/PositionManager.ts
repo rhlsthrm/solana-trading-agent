@@ -799,9 +799,6 @@ export class PositionManager {
       clearInterval(this.balanceHistoryIntervalId);
     }
 
-    // Clear incorrect data (optional)
-    this.clearIncorrectBalanceHistory();
-
     // Immediately record the first data point
     this.recordBalanceHistory().catch((error) => {
       console.error("Error recording initial balance history:", error);
@@ -819,33 +816,6 @@ export class PositionManager {
     console.log(
       `✅ Started recording balance history every ${intervalMs / 60000} minutes`
     );
-  }
-
-  /**
-   * Clear incorrect balance history data
-   * Used to remove any data that doesn't include SOL balance
-   */
-  async clearIncorrectBalanceHistory() {
-    try {
-      // Delete all records where total_value < 50 (likely incorrect data)
-      // Adjust this threshold based on your typical portfolio size
-      const result = this.db
-        .prepare(
-          `
-        DELETE FROM balance_history
-        WHERE total_value < 50
-      `
-        )
-        .run();
-
-      if (result.changes > 0) {
-        console.log(
-          `Cleared ${result.changes} incorrect balance history records`
-        );
-      }
-    } catch (error) {
-      console.error("Error clearing incorrect balance history:", error);
-    }
   }
 
   /**

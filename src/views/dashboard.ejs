@@ -49,6 +49,56 @@
         });
       });
 
+      // Close Position button functionality
+      document.querySelectorAll('.close-position-btn').forEach(button => {
+        button.addEventListener('click', async function(e) {
+          e.preventDefault();
+          const positionId = this.dataset.positionId;
+          const tokenName = this.dataset.tokenName;
+
+          // Confirm with the user before closing the position
+          if (!confirm(`Are you sure you want to close your position in ${tokenName}?`)) {
+            return;
+          }
+
+          // Disable the button and show loading state
+          this.disabled = true;
+          this.textContent = 'Closing...';
+
+          try {
+            // Make an API call to close the position
+            const response = await fetch(`/api/position/close/${positionId}`, {
+              method: 'POST'
+            });
+
+            if (response.ok) {
+              const result = await response.json();
+              if (result.success) {
+                alert(`Position successfully closed! Profit/Loss: $${result.profitLoss.toFixed(2)}`);
+                // Refresh the page to show updated data
+                window.location.reload();
+              } else {
+                alert(`Error closing position: ${result.error}`);
+                // Re-enable the button
+                this.disabled = false;
+                this.textContent = 'Close Position';
+              }
+            } else {
+              alert('Error communicating with server. Please try again.');
+              // Re-enable the button
+              this.disabled = false;
+              this.textContent = 'Close Position';
+            }
+          } catch (error) {
+            console.error('Error closing position:', error);
+            alert('An unexpected error occurred. Please try again.');
+            // Re-enable the button
+            this.disabled = false;
+            this.textContent = 'Close Position';
+          }
+        });
+      });
+
       // Load balance history chart data
       loadBalanceHistoryChart();
     }
@@ -240,6 +290,7 @@
               <th>Value</th>
               <th>P&L</th>
               <th>Status</th>
+              <th>Action</th>
             </tr>
           </thead>
           <tbody>
@@ -310,6 +361,11 @@
                       <%= profitLossPercentage >= 0 ? 'Profit' : 'Loss' %>
                     </div>
                   <% } %>
+                </td>
+                <td>
+                  <button class="close-position-btn" data-position-id="<%= position.id %>" data-token-name="<%= tokenInfo.name || tokenInfo.symbol %>">
+                    Close Position
+                  </button>
                 </td>
               </tr>
             <% }) %>

@@ -325,3 +325,24 @@ footer {
   color: #6b7280;
   font-size: 0.875rem;
 }
+
+/* Close Position Button */
+.close-position-btn {
+  background-color: #ef4444;
+  color: white;
+  border: none;
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.close-position-btn:hover {
+  background-color: #dc2626;
+}
+
+.close-position-btn:disabled {
+  background-color: #d1d5db;
+  cursor: not-allowed;
+}

@@ -1,6 +1,11 @@
 // index.ts: Web dashboard for portfolio positions running on localhost:3000
 import "dotenv/config";
-import express from "express";
+import express, {
+  Request,
+  Response,
+  NextFunction,
+  RequestHandler,
+} from "express";
 import path from "path";
 import { fileURLToPath } from "url";
 import morgan from "morgan";
@@ -109,6 +114,7 @@ async function main() {
     app.set("views", path.join(__dirname, "views"));
     app.set("view engine", "ejs");
     app.use(express.static(path.join(__dirname, "public")));
+    app.use(express.json()); // For parsing application/json
     app.use(morgan("dev"));
 
     // Create a token cache updater
@@ -203,7 +209,7 @@ async function main() {
     }
 
     // Dashboard route
-    app.get("/", async (req, res) => {
+    app.get("/", (async (req: Request, res: Response) => {
       try {
         // Update position prices
         await positionManager.updatePricesAndProfitLoss();
@@ -368,19 +374,83 @@ async function main() {
         console.error("Error rendering dashboard:", error);
         res.status(500).send(`Error: ${(error as Error).message}`);
       }
-    });
+    }) as RequestHandler);
 
     // API endpoint for balance history data
-    app.get("/api/balance-history", async (req, res) => {
+    app.get("/api/balance-history", (async (req: Request, res: Response) => {
       try {
         const days = parseInt(req.query.days as string) || 30;
-        const balanceHistory = await positionManager.getDailyBalanceHistory(days);
+        const balanceHistory = await positionManager.getDailyBalanceHistory(
+          days
+        );
         res.json(balanceHistory);
       } catch (error) {
         console.error("Error fetching balance history:", error);
         res.status(500).json({ error: (error as Error).message });
       }
-    });
+    }) as RequestHandler);
+
+    // API endpoint for closing a position
+    app.post("/api/position/close/:id", (async (req: Request, res: Response) => {
+      try {
+        const positionId = req.params.id;
+
+        // Get the position first to calculate profit/loss later
+        const position = await positionManager.getPosition(positionId);
+        if (!position) {
+          return res.status(404).json({
+            success: false,
+            error: "Position not found",
+          });
+        }
+
+        // Calculate profit/loss for the response
+        let profitLoss = 0;
+        if (position.entryPrice && position.currentPrice) {
+          // Get token decimals from the database
+          const tokenRecord = db
+            .prepare("SELECT decimals FROM tokens WHERE address = ?")
+            .get(position.tokenAddress) as { decimals?: number } | undefined;
+
+          // Default to 9 decimals if not found
+          const tokenDecimals = tokenRecord?.decimals || 9;
+
+          // Import the function dynamically
+          const { normalizeTokenAmount } = await import("./utils/token");
+
+          // Calculate using normalized amount (same as in the UI)
+          const normalizedAmount = normalizeTokenAmount(
+            position.amount,
+            tokenDecimals
+          );
+          const entryValue = normalizedAmount * position.entryPrice;
+          const currentValue = normalizedAmount * position.currentPrice;
+          profitLoss = currentValue - entryValue;
+        }
+
+        // Attempt to close the position
+        const success = await positionManager.closePosition(positionId);
+
+        if (success) {
+          res.json({
+            success: true,
+            message: "Position closed successfully",
+            profitLoss,
+          });
+        } else {
+          res.status(500).json({
+            success: false,
+            error: "Failed to close position",
+          });
+        }
+      } catch (error) {
+        console.error(`Error closing position:`, error);
+        res.status(500).json({
+          success: false,
+          error: (error as Error).message,
+        });
+      }
+    }) as RequestHandler);
 
     // Start the server
     app.listen(port, () => {
