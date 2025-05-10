@@ -15,10 +15,10 @@ export const tradingSchema = `
     status TEXT CHECK (status IN ('ACTIVE', 'CLOSED', 'LIQUIDATED'))
   );
 
-  CREATE INDEX IF NOT EXISTS idx_positions_token_address 
+  CREATE INDEX IF NOT EXISTS idx_positions_token_address
     ON positions(token_address);
-  
-  CREATE INDEX IF NOT EXISTS idx_positions_status 
+
+  CREATE INDEX IF NOT EXISTS idx_positions_status
     ON positions(status);
 
   CREATE TABLE IF NOT EXISTS trades (
@@ -44,6 +44,18 @@ export const tradingSchema = `
     volume_24h NUMERIC,
     last_updated INTEGER DEFAULT (unixepoch())
   );
+
+  CREATE TABLE IF NOT EXISTS balance_history (
+    id TEXT PRIMARY KEY,
+    timestamp INTEGER NOT NULL,
+    total_value NUMERIC NOT NULL,
+    active_positions_value NUMERIC NOT NULL,
+    profit_loss NUMERIC NOT NULL,
+    profit_loss_percentage NUMERIC NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_balance_history_timestamp
+    ON balance_history(timestamp);
 `;
 
 // Create required tables for ELIZA

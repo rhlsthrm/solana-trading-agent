@@ -48,7 +48,6 @@ export class TelegramMonitorService {
   private channelIds: string[] = ["DegenSeals", "fadedarc", "goattests"];
   private lastMessageTime: number = Date.now();
   private isConnected: boolean = false;
-  private readonly minLiquidity = 50000;
   private readonly minVolume = 10000;
 
   // Token mention tracking for better context analysis
@@ -467,9 +466,13 @@ export class TelegramMonitorService {
             `📈 Update message with significant gains (${pumpMultiplier}x) on owned token - considering sell signal`
           );
         }
-        
+
         // Messages indicating a 3-4x pump on tokens we DON'T own should remain BUY signals
-        if ((pumpMultiplier || 0) >= 3 && (pumpMultiplier || 0) < 5 && !existingPosition) {
+        if (
+          (pumpMultiplier || 0) >= 3 &&
+          (pumpMultiplier || 0) < 5 &&
+          !existingPosition
+        ) {
           console.log(
             `🔄 Keeping as BUY signal for ${pumpMultiplier}x token we don't own yet`
           );
@@ -490,7 +493,13 @@ export class TelegramMonitorService {
         }
 
         // Log compact signal summary
-        console.log(`📊 Signal: ${signal.type} ${tokenInfo.symbol || tokenInfo.address} | Pump: ${signal.pumpDetected ? `${signal.pumpMultiplier}x` : "No"} | Urgency: ${signal.urgencyLevel || "normal"}`);
+        console.log(
+          `📊 Signal: ${signal.type} ${
+            tokenInfo.symbol || tokenInfo.address
+          } | Pump: ${
+            signal.pumpDetected ? `${signal.pumpMultiplier}x` : "No"
+          } | Urgency: ${signal.urgencyLevel || "normal"}`
+        );
       }
 
       return signal;
@@ -536,14 +545,6 @@ export class TelegramMonitorService {
         return true;
       }
 
-      // For BUY signals, apply our usual criteria:
-
-      // Basic liquidity check
-      if (signal.liquidity && signal.liquidity < this.minLiquidity) {
-        console.log(`❌ Rejected: Insufficient liquidity ($${signal.liquidity})`);
-        return false;
-      }
-
       // Basic volume check
       if (signal.volume24h && signal.volume24h < this.minVolume) {
         console.log(`❌ Rejected: Low volume ($${signal.volume24h})`);
@@ -567,21 +568,10 @@ export class TelegramMonitorService {
         return false;
       }
 
-      // For pumped tokens, we only require higher liquidity as a safety measure
-      if (signal.pumpDetected && (signal.pumpMultiplier || 0) >= 2) {
-        // For any pumped token, require higher liquidity based on pump size
-        const pumpMultiplier = signal.pumpMultiplier || 0;
-        const liquidityMultiplier = Math.min(1 + pumpMultiplier * 0.5, 3); // Cap at 3x base requirement
-        const pumpedTokenMinLiquidity = this.minLiquidity * liquidityMultiplier;
-
-        if (signal.liquidity && signal.liquidity < pumpedTokenMinLiquidity) {
-          console.log(`❌ Rejected: Pumped token (${pumpMultiplier}x) with low liquidity`);
-          return false;
-        }
-      }
-
       // Log a simple acceptance message
-      console.log(`✅ Accepting ${signal.type} signal for ${signal.tokenAddress}`);
+      console.log(
+        `✅ Accepting ${signal.type} signal for ${signal.tokenAddress}`
+      );
 
       await this.storeSignal(signal);
       return true;

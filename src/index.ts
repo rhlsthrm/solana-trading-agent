@@ -370,6 +370,18 @@ async function main() {
       }
     });
 
+    // API endpoint for balance history data
+    app.get("/api/balance-history", async (req, res) => {
+      try {
+        const days = parseInt(req.query.days as string) || 30;
+        const balanceHistory = await positionManager.getDailyBalanceHistory(days);
+        res.json(balanceHistory);
+      } catch (error) {
+        console.error("Error fetching balance history:", error);
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
     // Start the server
     app.listen(port, () => {
       console.log(`🚀 Dashboard running at http://localhost:${port}`);

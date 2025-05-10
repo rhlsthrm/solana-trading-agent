@@ -6,6 +6,16 @@ import { randomUUID } from "../utils/uuid";
 import { tradingSchema } from "../utils/db-schema";
 import { runMigrations } from "../utils/migrations";
 
+// Interface for balance history records
+export interface BalanceHistoryRecord {
+  id: string;
+  timestamp: number;
+  totalValue: number;
+  activePositionsValue: number;
+  profitLoss: number;
+  profitLossPercentage: number;
+}
+
 export interface Position {
   id: string;
   tokenAddress: string;
@@ -32,12 +42,15 @@ export interface ProfitLossData {
 }
 
 export class PositionManager {
+  private balanceHistoryIntervalId: NodeJS.Timeout | null = null;
+
   constructor(
     private db: Database.Database,
     private jupiterService: JupiterService,
     private walletClient: SolanaWalletClient
   ) {
     this.initializeDatabase();
+    this.startBalanceHistoryRecording();
   }
 
   private initializeDatabase() {
@@ -756,6 +769,208 @@ export class PositionManager {
       activePnL: metrics.profitLoss,
       tradePnL: tradePnL,
       totalPnL: totalPnL
+    };
+  }
+
+  /**
+   * Start recording balance history periodically
+   * Records the account balance every hour by default
+   */
+  startBalanceHistoryRecording(intervalMs: number = 3600000) {
+    // Clear any existing interval
+    if (this.balanceHistoryIntervalId) {
+      clearInterval(this.balanceHistoryIntervalId);
+    }
+
+    // Immediately record the first data point
+    this.recordBalanceHistory().catch(error => {
+      console.error("Error recording initial balance history:", error);
+    });
+
+    // Start the interval to record balance history
+    this.balanceHistoryIntervalId = setInterval(async () => {
+      try {
+        await this.recordBalanceHistory();
+      } catch (error) {
+        console.error("Error recording balance history:", error);
+      }
+    }, intervalMs);
+
+    console.log(`✅ Started recording balance history every ${intervalMs / 60000} minutes`);
+  }
+
+  /**
+   * Stop recording balance history
+   */
+  stopBalanceHistoryRecording() {
+    if (this.balanceHistoryIntervalId) {
+      clearInterval(this.balanceHistoryIntervalId);
+      this.balanceHistoryIntervalId = null;
+      console.log("Stopped recording balance history");
+    }
+  }
+
+  /**
+   * Record current balance to the balance_history table
+   */
+  async recordBalanceHistory(): Promise<BalanceHistoryRecord> {
+    // Get portfolio metrics
+    const metrics = await this.getPortfolioMetrics();
+
+    // Get comprehensive P&L that includes trades
+    const pnlData = await this.getComprehensivePnL();
+
+    const timestamp = Date.now();
+    const record: BalanceHistoryRecord = {
+      id: randomUUID(),
+      timestamp,
+      totalValue: metrics.totalValue,
+      activePositionsValue: metrics.totalValue,
+      profitLoss: pnlData.totalPnL,
+      profitLossPercentage: metrics.profitLossPercentage
+    };
+
+    // Store in database
+    this.db.prepare(`
+      INSERT INTO balance_history (
+        id,
+        timestamp,
+        total_value,
+        active_positions_value,
+        profit_loss,
+        profit_loss_percentage
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      record.id,
+      record.timestamp,
+      record.totalValue,
+      record.activePositionsValue,
+      record.profitLoss,
+      record.profitLossPercentage
+    );
+
+    console.log(`📊 Recorded balance history: Total Value: $${record.totalValue.toFixed(2)}, P&L: $${record.profitLoss.toFixed(2)} (${record.profitLossPercentage.toFixed(2)}%)`);
+
+    return record;
+  }
+
+  /**
+   * Get balance history records
+   * @param limit Maximum number of records to return (default: 100)
+   * @param timeRange Optional time range in milliseconds (e.g., 86400000 for last 24 hours)
+   * @param interval Optional interval for data aggregation ('hour', 'day', 'week')
+   */
+  async getBalanceHistory(limit: number = 100, timeRange?: number, interval?: 'hour' | 'day' | 'week'): Promise<BalanceHistoryRecord[]> {
+    let query = `
+      SELECT
+        id,
+        timestamp,
+        total_value as totalValue,
+        active_positions_value as activePositionsValue,
+        profit_loss as profitLoss,
+        profit_loss_percentage as profitLossPercentage
+      FROM balance_history
+    `;
+
+    const params: any[] = [];
+
+    // Add time range filter if specified
+    if (timeRange) {
+      const startTime = Date.now() - timeRange;
+      query += ` WHERE timestamp >= ?`;
+      params.push(startTime);
+    }
+
+    // Order by timestamp and limit results
+    query += ` ORDER BY timestamp DESC LIMIT ?`;
+    params.push(limit);
+
+    const records = this.db.prepare(query).all(...params) as BalanceHistoryRecord[];
+
+    // If interval specified, aggregate data
+    if (interval && records.length > 0) {
+      return this.aggregateBalanceHistory(records, interval);
+    }
+
+    return records;
+  }
+
+  /**
+   * Aggregate balance history records by time interval
+   */
+  private aggregateBalanceHistory(records: BalanceHistoryRecord[], interval: 'hour' | 'day' | 'week'): BalanceHistoryRecord[] {
+    // Define the interval size in milliseconds
+    const intervalSize = {
+      'hour': 3600000,
+      'day': 86400000,
+      'week': 604800000
+    }[interval];
+
+    // Group records by interval
+    const groupedRecords: { [key: number]: BalanceHistoryRecord[] } = {};
+
+    records.forEach(record => {
+      // Calculate the interval bucket
+      const bucket = Math.floor(record.timestamp / intervalSize) * intervalSize;
+
+      if (!groupedRecords[bucket]) {
+        groupedRecords[bucket] = [];
+      }
+
+      groupedRecords[bucket].push(record);
+    });
+
+    // Aggregate each interval group
+    const aggregatedRecords: BalanceHistoryRecord[] = Object.keys(groupedRecords).map(bucketStr => {
+      const bucket = parseInt(bucketStr);
+      const bucketRecords = groupedRecords[bucket];
+
+      // Take the latest record in each bucket
+      const latestRecord = bucketRecords.reduce((latest, current) =>
+        current.timestamp > latest.timestamp ? current : latest, bucketRecords[0]);
+
+      return {
+        ...latestRecord,
+        timestamp: bucket // Use the bucket timestamp for consistency
+      };
+    });
+
+    // Sort by timestamp descending
+    return aggregatedRecords.sort((a, b) => b.timestamp - a.timestamp);
+  }
+
+  /**
+   * Get daily balance summary for a graph
+   * Returns an array of daily balance records for the specified number of days
+   * @param days Number of days of history to return (default: 30)
+   */
+  async getDailyBalanceHistory(days: number = 30): Promise<{
+    dates: string[];
+    totalValues: number[];
+    profitLossValues: number[];
+  }> {
+    // Get milliseconds for the time range
+    const timeRange = days * 86400000;
+
+    // Get balance history records
+    const records = await this.getBalanceHistory(days * 24, timeRange, 'day');
+
+    // Format the data for a graph
+    const dates: string[] = [];
+    const totalValues: number[] = [];
+    const profitLossValues: number[] = [];
+
+    records.reverse().forEach(record => {
+      const date = new Date(record.timestamp);
+      dates.push(date.toLocaleDateString());
+      totalValues.push(record.totalValue);
+      profitLossValues.push(record.profitLoss);
+    });
+
+    return {
+      dates,
+      totalValues,
+      profitLossValues
     };
   }
 }

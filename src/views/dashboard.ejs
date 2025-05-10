@@ -6,6 +6,7 @@
   <title>Solana Trading Agent Dashboard</title>
   <link rel="stylesheet" href="/css/style.css">
   <meta http-equiv="refresh" content="30">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
     // Countdown timer for auto-refresh and setup copy buttons
     window.onload = function() {
@@ -47,6 +48,99 @@
           }, 1000);
         });
       });
+
+      // Load balance history chart data
+      loadBalanceHistoryChart();
+    }
+
+    // Function to load and render the balance history chart
+    async function loadBalanceHistoryChart() {
+      try {
+        // Fetch balance history data from API
+        const response = await fetch('/api/balance-history');
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch balance history data');
+        }
+
+        const data = await response.json();
+
+        if (!data.dates || !data.totalValues || data.dates.length === 0) {
+          console.log('No balance history data available yet');
+          return;
+        }
+
+        // Create chart
+        const ctx = document.getElementById('balanceHistoryChart');
+
+        if (!ctx) {
+          console.error('Chart canvas element not found');
+          return;
+        }
+
+        new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: data.dates,
+            datasets: [
+              {
+                label: 'Portfolio Value ($)',
+                data: data.totalValues,
+                borderColor: '#10b981',
+                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                borderWidth: 2,
+                fill: true,
+                tension: 0.4
+              },
+              {
+                label: 'Profit/Loss ($)',
+                data: data.profitLossValues,
+                borderColor: '#8b5cf6',
+                backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                borderWidth: 2,
+                fill: true,
+                tension: 0.4
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: 'top',
+              },
+              tooltip: {
+                callbacks: {
+                  label: function(context) {
+                    return `${context.dataset.label}: $${context.raw.toFixed(2)}`;
+                  }
+                }
+              }
+            },
+            scales: {
+              y: {
+                beginAtZero: false,
+                grid: {
+                  color: 'rgba(160, 174, 192, 0.1)'
+                },
+                ticks: {
+                  callback: function(value) {
+                    return '$' + value.toFixed(2);
+                  }
+                }
+              },
+              x: {
+                grid: {
+                  color: 'rgba(160, 174, 192, 0.1)'
+                }
+              }
+            }
+          }
+        });
+      } catch (error) {
+        console.error('Error loading balance history chart:', error);
+      }
     }
   </script>
 </head>
@@ -75,7 +169,7 @@
       <div class="card-header">
         <h2 class="card-title">Portfolio Summary</h2>
       </div>
-      
+
       <div class="summary-grid">
         <div class="summary-item">
           <div class="summary-label">SOL Balance</div>
@@ -88,17 +182,17 @@
             <% } %>
           </div>
         </div>
-        
+
         <div class="summary-item">
           <div class="summary-label">Positions Value</div>
           <div class="summary-value">$<%= formatCurrency(metrics.totalValue, 2) %></div>
         </div>
-        
+
         <div class="summary-item">
           <div class="summary-label">Total Value</div>
           <div class="summary-value">$<%= formatCurrency(totalValueWithSol, 2) %></div>
         </div>
-        
+
         <div class="summary-item">
           <div class="summary-label">Position P&L</div>
           <div class="summary-value <%= metrics.profitLoss >= 0 ? 'positive' : 'negative' %>">
@@ -106,13 +200,26 @@
             (<%= metrics.profitLossPercentage >= 0 ? '+' : '' %><%= metrics.profitLossPercentage.toFixed(2) %>%)
           </div>
         </div>
-        
+
         <div class="summary-item">
           <div class="summary-label">Total P&L</div>
           <div class="summary-value <%= metrics.totalPnL >= 0 ? 'positive' : 'negative' %>">
             $<%= formatCurrency(metrics.totalPnL, 2) %>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Balance History Chart Card -->
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">Portfolio Balance History</h2>
+      </div>
+      <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
+        <canvas id="balanceHistoryChart"></canvas>
+      </div>
+      <div class="chart-info">
+        <p>This chart shows the history of your total portfolio value and profit/loss over time.</p>
       </div>
     </div>
     
