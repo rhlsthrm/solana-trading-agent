@@ -1,285 +1,120 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Solana Trading Agent Dashboard</title>
-  <link rel="stylesheet" href="/css/style.css">
-  <meta http-equiv="refresh" content="30">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script>
-    // Countdown timer for auto-refresh and setup copy buttons
-    window.onload = function() {
-      // Auto-refresh countdown
-      let seconds = 30;
-      const countdownElement = document.getElementById('countdown');
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Solana Trading Agent Dashboard</title>
+    <link rel="stylesheet" href="/css/style.css" />
+    <meta http-equiv="refresh" content="30" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/js/dashboard.js"></script>
+  </head>
+  <body>
+    <div class="loader"></div>
 
-      function updateCountdown() {
-        countdownElement.textContent = seconds;
-        if (seconds > 0) {
-          seconds -= 1;
-          setTimeout(updateCountdown, 1000);
-        }
-      }
-
-      updateCountdown();
-
-      // Copy button functionality
-      document.querySelectorAll('.copy-btn').forEach(button => {
-        button.addEventListener('click', function(e) {
-          e.preventDefault();
-          const address = this.dataset.address;
-
-          // Create a temporary input element to copy the text
-          const tempInput = document.createElement('input');
-          tempInput.value = address;
-          document.body.appendChild(tempInput);
-          tempInput.select();
-          document.execCommand('copy');
-          document.body.removeChild(tempInput);
-
-          // Visual feedback
-          const originalColor = this.style.color;
-          this.style.color = '#10b981'; // Success green
-
-          // Reset back after a short delay
-          setTimeout(() => {
-            this.style.color = originalColor;
-          }, 1000);
-        });
-      });
-
-      // Close Position button functionality
-      document.querySelectorAll('.close-position-btn').forEach(button => {
-        button.addEventListener('click', async function(e) {
-          e.preventDefault();
-          const positionId = this.dataset.positionId;
-          const tokenName = this.dataset.tokenName;
-
-          // Confirm with the user before closing the position
-          if (!confirm(`Are you sure you want to close your position in ${tokenName}?`)) {
-            return;
-          }
-
-          // Disable the button and show loading state
-          this.disabled = true;
-          this.textContent = 'Closing...';
-
-          try {
-            // Make an API call to close the position
-            const response = await fetch(`/api/position/close/${positionId}`, {
-              method: 'POST'
-            });
-
-            if (response.ok) {
-              const result = await response.json();
-              if (result.success) {
-                alert(`Position successfully closed! Profit/Loss: $${result.profitLoss.toFixed(2)}`);
-                // Refresh the page to show updated data
-                window.location.reload();
-              } else {
-                alert(`Error closing position: ${result.error}`);
-                // Re-enable the button
-                this.disabled = false;
-                this.textContent = 'Close Position';
-              }
-            } else {
-              alert('Error communicating with server. Please try again.');
-              // Re-enable the button
-              this.disabled = false;
-              this.textContent = 'Close Position';
-            }
-          } catch (error) {
-            console.error('Error closing position:', error);
-            alert('An unexpected error occurred. Please try again.');
-            // Re-enable the button
-            this.disabled = false;
-            this.textContent = 'Close Position';
-          }
-        });
-      });
-
-      // Load balance history chart data
-      loadBalanceHistoryChart();
-    }
-
-    // Function to load and render the balance history chart
-    async function loadBalanceHistoryChart() {
-      try {
-        // Fetch balance history data from API
-        const response = await fetch('/api/balance-history');
-
-        if (!response.ok) {
-          throw new Error('Failed to fetch balance history data');
-        }
-
-        const data = await response.json();
-
-        if (!data.dates || !data.totalValues || data.dates.length === 0) {
-          console.log('No balance history data available yet');
-          return;
-        }
-
-        // Create chart
-        const ctx = document.getElementById('balanceHistoryChart');
-
-        if (!ctx) {
-          console.error('Chart canvas element not found');
-          return;
-        }
-
-        new Chart(ctx, {
-          type: 'line',
-          data: {
-            labels: data.dates,
-            datasets: [
-              {
-                label: 'Portfolio Value ($)',
-                data: data.totalValues,
-                borderColor: '#10b981',
-                backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                borderWidth: 2,
-                fill: true,
-                tension: 0.4
-              },
-              {
-                label: 'Profit/Loss ($)',
-                data: data.profitLossValues,
-                borderColor: '#8b5cf6',
-                backgroundColor: 'rgba(139, 92, 246, 0.1)',
-                borderWidth: 2,
-                fill: true,
-                tension: 0.4
-              }
-            ]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: {
-                position: 'top',
-              },
-              tooltip: {
-                callbacks: {
-                  label: function(context) {
-                    return `${context.dataset.label}: $${context.raw.toFixed(2)}`;
-                  }
-                }
-              }
-            },
-            scales: {
-              y: {
-                beginAtZero: false,
-                grid: {
-                  color: 'rgba(160, 174, 192, 0.1)'
-                },
-                ticks: {
-                  callback: function(value) {
-                    return '$' + value.toFixed(2);
-                  }
-                }
-              },
-              x: {
-                grid: {
-                  color: 'rgba(160, 174, 192, 0.1)'
-                }
-              }
-            }
-          }
-        });
-      } catch (error) {
-        console.error('Error loading balance history chart:', error);
-      }
-    }
-  </script>
-</head>
-<body>
-  <div class="loader"></div>
-  
-  <header class="header">
-    <div class="container header-content">
-      <div class="header-title-section">
-        <h1>Solana Trading Agent Dashboard</h1>
-        <% if (walletAddress && walletAddress !== "Unknown") { %>
+    <header class="header">
+      <div class="container header-content">
+        <div class="header-title-section">
+          <h1>Solana Trading Agent Dashboard</h1>
+          <% if (walletAddress && walletAddress !== "Unknown") { %>
           <div class="wallet-address">
-            Wallet: <span class="address-text"><%= truncateAddress(walletAddress, 10, 5) %></span>
+            Wallet:
+            <span class="address-text"
+              ><%= truncateAddress(walletAddress, 10, 5) %></span
+            >
           </div>
-        <% } %>
+          <% } %>
+        </div>
+        <div class="refresh-info">
+          Last updated: <%= new Date().toLocaleString() %>
+        </div>
       </div>
-      <div class="refresh-info">
-        Last updated: <%= new Date().toLocaleString() %>
-      </div>
-    </div>
-  </header>
+    </header>
 
-  <div class="container">
-    <!-- Portfolio Summary Card -->
-    <div class="card">
-      <div class="card-header">
-        <h2 class="card-title">Portfolio Summary</h2>
-      </div>
+    <div class="container">
+      <!-- Portfolio Summary Card -->
+      <div class="card">
+        <div class="card-header">
+          <h2 class="card-title">Portfolio Summary</h2>
+        </div>
 
-      <div class="summary-grid">
-        <div class="summary-item">
-          <div class="summary-label">SOL Balance</div>
-          <div class="summary-value">
-            <% if (typeof solBalance === 'number') { %>
-              <%= solBalance.toFixed(6) %> SOL
-              <span class="token-address">≈$<%= formatCurrency(solValueUsd, 2) %></span>
-            <% } else { %>
+        <div class="summary-grid">
+          <div class="summary-item">
+            <div class="summary-label">SOL Balance</div>
+            <div class="summary-value">
+              <% if (typeof solBalance === 'number') { %> <%=
+              solBalance.toFixed(6) %> SOL
+              <span class="token-address"
+                >≈$<%= formatCurrency(solValueUsd, 2) %></span
+              >
+              <% } else { %>
               <span class="neutral">Not available</span>
-            <% } %>
+              <% } %>
+            </div>
+          </div>
+
+          <div class="summary-item">
+            <div class="summary-label">Positions Value</div>
+            <div class="summary-value">
+              $<%= formatCurrency(metrics.totalValue, 2) %>
+            </div>
+          </div>
+
+          <div class="summary-item">
+            <div class="summary-label">Total Value</div>
+            <div class="summary-value">
+              $<%= formatCurrency(totalValueWithSol, 2) %>
+            </div>
+          </div>
+
+          <div class="summary-item">
+            <div class="summary-label">Position P&L</div>
+            <div
+              class="summary-value <%= metrics.profitLoss >= 0 ? 'positive' : 'negative' %>"
+            >
+              $<%= formatCurrency(metrics.profitLoss, 2) %> (<%=
+              metrics.profitLossPercentage >= 0 ? '+' : '' %><%=
+              metrics.profitLossPercentage.toFixed(2) %>%)
+            </div>
+          </div>
+
+          <div class="summary-item">
+            <div class="summary-label">Total P&L</div>
+            <div
+              class="summary-value <%= metrics.totalPnL >= 0 ? 'positive' : 'negative' %>"
+            >
+              $<%= formatCurrency(metrics.totalPnL, 2) %>
+            </div>
           </div>
         </div>
+      </div>
 
-        <div class="summary-item">
-          <div class="summary-label">Positions Value</div>
-          <div class="summary-value">$<%= formatCurrency(metrics.totalValue, 2) %></div>
+      <!-- Balance History Chart Card -->
+      <div class="card">
+        <div class="card-header">
+          <h2 class="card-title">Portfolio Balance History</h2>
         </div>
-
-        <div class="summary-item">
-          <div class="summary-label">Total Value</div>
-          <div class="summary-value">$<%= formatCurrency(totalValueWithSol, 2) %></div>
+        <div
+          class="chart-container"
+          style="position: relative; height: 300px; width: 100%"
+        >
+          <canvas id="balanceHistoryChart"></canvas>
         </div>
-
-        <div class="summary-item">
-          <div class="summary-label">Position P&L</div>
-          <div class="summary-value <%= metrics.profitLoss >= 0 ? 'positive' : 'negative' %>">
-            $<%= formatCurrency(metrics.profitLoss, 2) %>
-            (<%= metrics.profitLossPercentage >= 0 ? '+' : '' %><%= metrics.profitLossPercentage.toFixed(2) %>%)
-          </div>
-        </div>
-
-        <div class="summary-item">
-          <div class="summary-label">Total P&L</div>
-          <div class="summary-value <%= metrics.totalPnL >= 0 ? 'positive' : 'negative' %>">
-            $<%= formatCurrency(metrics.totalPnL, 2) %>
-          </div>
+        <div class="chart-info">
+          <p>
+            This chart shows the history of your total portfolio value and
+            profit/loss over time.
+          </p>
         </div>
       </div>
-    </div>
 
-    <!-- Balance History Chart Card -->
-    <div class="card">
-      <div class="card-header">
-        <h2 class="card-title">Portfolio Balance History</h2>
-      </div>
-      <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
-        <canvas id="balanceHistoryChart"></canvas>
-      </div>
-      <div class="chart-info">
-        <p>This chart shows the history of your total portfolio value and profit/loss over time.</p>
-      </div>
-    </div>
-    
-    <!-- Active Positions Card -->
-    <div class="card">
-      <div class="card-header">
-        <h2 class="card-title">Active Positions (<%= positions.length %>)</h2>
-      </div>
-      
-      <% if (positions.length > 0) { %>
+      <!-- Active Positions Card -->
+      <div class="card">
+        <div class="card-header">
+          <h2 class="card-title">Active Positions (<%= positions.length %>)</h2>
+        </div>
+
+        <% if (positions.length > 0) { %>
         <table>
           <thead>
             <tr>
@@ -294,97 +129,132 @@
             </tr>
           </thead>
           <tbody>
-            <% positions.forEach(position => { %>
-              <% 
-                // Get token info from our cache
-                const tokenInfo = tokenMap[position.tokenAddress] || { symbol: '???', name: 'Unknown', decimals: 9 };
-                
-                // Get the token decimals from our cache or use default
-                const tokenDecimals = tokenInfo.decimals || 9;
-                
-                // Normalize the token amount using the correct number of decimals
-                const normalizedAmount = normalizeTokenAmount(position.amount, tokenDecimals);
-                
-                // Calculate values using normalized amount for display
-                const entryValue = normalizedAmount * position.entryPrice;
-                const currentValue = position.currentPrice ? normalizedAmount * position.currentPrice : 0;
-                
-                // Calculate the profit/loss directly from currentValue and entryValue
-                // This is more accurate than using the database value
-                const profitLoss = currentValue - entryValue;
-                
-                // Calculate percentage based on entry value
-                const profitLossPercentage = entryValue > 0 ? (profitLoss / entryValue) * 100 : 0;
-                
-                let statusClass = 'neutral';
-                if (profitLossPercentage > 20) statusClass = 'positive';
-                else if (profitLossPercentage > 0) statusClass = 'positive';
-                else if (profitLossPercentage < -10) statusClass = 'negative';
-                else if (profitLossPercentage < 0) statusClass = 'negative';
-              %>
-              <tr>
-                <td>
-                  <div class="token-cell">
-                    <div>
-                      <div class="token-name">
-                        <a href="https://birdeye.so/token/<%= position.tokenAddress %>?chain=solana" target="_blank" class="token-link">
-                          <%= tokenInfo.name || tokenInfo.symbol %>
-                        </a>
-                      </div>
-                      <div class="token-address-container">
-                        <span class="token-address" title="<%= position.tokenAddress %>"><%= truncateAddress(position.tokenAddress) %></span>
-                        <button class="copy-btn" data-address="<%= position.tokenAddress %>" title="Copy address">
-                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                          </svg>
-                        </button>
-                      </div>
+            <% positions.forEach(position => { %> <% // Get token info from our
+            cache const tokenInfo = tokenMap[position.tokenAddress] || { symbol:
+            '???', name: 'Unknown', decimals: 9 }; // Get the token decimals
+            from our cache or use default const tokenDecimals =
+            tokenInfo.decimals || 9; // Normalize the token amount using the
+            correct number of decimals const normalizedAmount =
+            normalizeTokenAmount(position.amount, tokenDecimals); // Calculate
+            values using normalized amount for display const entryValue =
+            normalizedAmount * position.entryPrice; const currentValue =
+            position.currentPrice ? normalizedAmount * position.currentPrice :
+            0; // Calculate the profit/loss directly from currentValue and
+            entryValue // This is more accurate than using the database value
+            const profitLoss = currentValue - entryValue; // Calculate
+            percentage based on entry value const profitLossPercentage =
+            entryValue > 0 ? (profitLoss / entryValue) * 100 : 0; let
+            statusClass = 'neutral'; if (profitLossPercentage > 20) statusClass
+            = 'positive'; else if (profitLossPercentage > 0) statusClass =
+            'positive'; else if (profitLossPercentage < -10) statusClass =
+            'negative'; else if (profitLossPercentage < 0) statusClass =
+            'negative'; %>
+            <tr>
+              <td>
+                <div class="token-cell">
+                  <div>
+                    <div class="token-name">
+                      <a
+                        href="https://birdeye.so/token/<%= position.tokenAddress %>?chain=solana"
+                        target="_blank"
+                        class="token-link"
+                      >
+                        <%= tokenInfo.name || tokenInfo.symbol %>
+                      </a>
+                    </div>
+                    <div class="token-address-container">
+                      <span
+                        class="token-address"
+                        title="<%= position.tokenAddress %>"
+                        ><%= truncateAddress(position.tokenAddress) %></span
+                      >
+                      <button
+                        class="copy-btn"
+                        data-address="<%= position.tokenAddress %>"
+                        title="Copy address"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <rect
+                            x="9"
+                            y="9"
+                            width="13"
+                            height="13"
+                            rx="2"
+                            ry="2"
+                          ></rect>
+                          <path
+                            d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+                          ></path>
+                        </svg>
+                      </button>
                     </div>
                   </div>
-                </td>
-                <td class="price-cell"><%= formatTokenAmount(normalizedAmount) %></td>
-                <td class="price-cell">$<%= formatCurrency(position.entryPrice) %></td>
-                <td class="price-cell">$<%= formatCurrency(position.currentPrice) %></td>
-                <td class="price-cell">$<%= formatCurrency(currentValue) %></td>
-                <td class="price-cell <%= statusClass %>">
-                  $<%= formatCurrency(profitLoss) %>
-                  (<%= profitLossPercentage >= 0 ? '+' : '' %><%= profitLossPercentage.toFixed(2) %>%)
-                </td>
-                <td>
-                  <% if (profitLossPercentage > 25 && profitLossPercentage < 30) { %>
-                    <div class="warning">Approaching take-profit</div>
-                  <% } else if (profitLossPercentage < -10 && profitLossPercentage > -15) { %>
-                    <div class="warning">Approaching stop-loss</div>
-                  <% } else { %>
-                    <div class="<%= statusClass %>">
-                      <%= profitLossPercentage >= 0 ? 'Profit' : 'Loss' %>
-                    </div>
-                  <% } %>
-                </td>
-                <td>
-                  <button class="close-position-btn" data-position-id="<%= position.id %>" data-token-name="<%= tokenInfo.name || tokenInfo.symbol %>">
-                    Close Position
-                  </button>
-                </td>
-              </tr>
+                </div>
+              </td>
+              <td class="price-cell">
+                <%= formatTokenAmount(normalizedAmount) %>
+              </td>
+              <td class="price-cell">
+                $<%= formatCurrency(position.entryPrice) %>
+              </td>
+              <td class="price-cell">
+                $<%= formatCurrency(position.currentPrice) %>
+              </td>
+              <td class="price-cell">$<%= formatCurrency(currentValue) %></td>
+              <td class="price-cell <%= statusClass %>">
+                $<%= formatCurrency(profitLoss) %> (<%= profitLossPercentage >=
+                0 ? '+' : '' %><%= profitLossPercentage.toFixed(2) %>%)
+              </td>
+              <td>
+                <% if (profitLossPercentage > 25 && profitLossPercentage < 30) {
+                %>
+                <div class="warning">Approaching take-profit</div>
+                <% } else if (profitLossPercentage < -10 && profitLossPercentage
+                > -15) { %>
+                <div class="warning">Approaching stop-loss</div>
+                <% } else { %>
+                <div class="<%= statusClass %>">
+                  <%= profitLossPercentage >= 0 ? 'Profit' : 'Loss' %>
+                </div>
+                <% } %>
+              </td>
+              <td>
+                <button
+                  class="close-position-btn"
+                  data-position-id="<%= position.id %>"
+                  data-token-name="<%= tokenInfo.name || tokenInfo.symbol %>"
+                >
+                  Close Position
+                </button>
+              </td>
+            </tr>
             <% }) %>
           </tbody>
         </table>
-      <% } else { %>
-        <div style="padding: 2rem; text-align: center; color: #6b7280;">
+        <% } else { %>
+        <div style="padding: 2rem; text-align: center; color: #6b7280">
           No active positions found.
         </div>
-      <% } %>
-    </div>
-    
-    <!-- Recent Trades Card -->
-    <div class="card">
-      <div class="card-header">
-        <h2 class="card-title">Recent Trades</h2>
+        <% } %>
       </div>
-      
-      <% if (recentTrades.length > 0) { %>
+
+      <!-- Recent Trades Card -->
+      <div class="card">
+        <div class="card-header">
+          <h2 class="card-title">Recent Trades</h2>
+        </div>
+
+        <% if (recentTrades.length > 0) { %>
         <table>
           <thead>
             <tr>
@@ -397,125 +267,149 @@
             </tr>
           </thead>
           <tbody>
-            <% recentTrades.forEach(trade => { %>
-              <% 
-                // Get token info from our cache
-                const tokenInfo = tokenMap[trade.token_address] || { symbol: '???', name: 'Unknown', decimals: 9 };
-                
-                // Get the token decimals
-                const tokenDecimals = tokenInfo.decimals || 9;
-                
-                // Normalize the trade amount using the correct number of decimals
-                const normalizedTradeAmount = normalizeTokenAmount(trade.position_size, tokenDecimals);
-                
-                // Calculate values using normalized amount
-                const entryValue = normalizedTradeAmount * trade.entry_price;
-                const exitValue = normalizedTradeAmount * trade.exit_price;
-                
-                // Calculate profit/loss directly from exitValue and entryValue
-                const profitLoss = exitValue - entryValue;
-                
-                // Calculate percentage based on entry value
-                const profitLossPercentage = entryValue > 0 ? (profitLoss / entryValue) * 100 : 0;
-                const statusClass = profitLossPercentage >= 0 ? 'positive' : 'negative';
-                const exitDate = new Date(trade.exit_time * 1000);
-                const dateString = exitDate.toLocaleDateString() + ' ' + 
-                                  exitDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-              %>
-              <tr>
-                <td>
-                  <div class="token-cell">
-                    <div>
-                      <div class="token-name">
-                        <a href="https://birdeye.so/token/<%= trade.token_address %>?chain=solana" target="_blank" class="token-link">
-                          <%= tokenInfo.name || tokenInfo.symbol %>
-                        </a>
-                      </div>
-                      <div class="token-address-container">
-                        <span class="token-address" title="<%= trade.token_address %>"><%= truncateAddress(trade.token_address) %></span>
-                        <button class="copy-btn" data-address="<%= trade.token_address %>" title="Copy address">
-                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                          </svg>
-                        </button>
-                      </div>
+            <% recentTrades.forEach(trade => { %> <% // Get token info from our
+            cache const tokenInfo = tokenMap[trade.token_address] || { symbol:
+            '???', name: 'Unknown', decimals: 9 }; // Get the token decimals
+            const tokenDecimals = tokenInfo.decimals || 9; // Normalize the
+            trade amount using the correct number of decimals const
+            normalizedTradeAmount = normalizeTokenAmount(trade.position_size,
+            tokenDecimals); // Calculate values using normalized amount const
+            entryValue = normalizedTradeAmount * trade.entry_price; const
+            exitValue = normalizedTradeAmount * trade.exit_price; // Calculate
+            profit/loss directly from exitValue and entryValue const profitLoss
+            = exitValue - entryValue; // Calculate percentage based on entry
+            value const profitLossPercentage = entryValue > 0 ? (profitLoss /
+            entryValue) * 100 : 0; const statusClass = profitLossPercentage >= 0
+            ? 'positive' : 'negative'; const exitDate = new Date(trade.exit_time
+            * 1000); const dateString = exitDate.toLocaleDateString() + ' ' +
+            exitDate.toLocaleTimeString([], {hour: '2-digit',
+            minute:'2-digit'}); %>
+            <tr>
+              <td>
+                <div class="token-cell">
+                  <div>
+                    <div class="token-name">
+                      <a
+                        href="https://birdeye.so/token/<%= trade.token_address %>?chain=solana"
+                        target="_blank"
+                        class="token-link"
+                      >
+                        <%= tokenInfo.name || tokenInfo.symbol %>
+                      </a>
+                    </div>
+                    <div class="token-address-container">
+                      <span
+                        class="token-address"
+                        title="<%= trade.token_address %>"
+                        ><%= truncateAddress(trade.token_address) %></span
+                      >
+                      <button
+                        class="copy-btn"
+                        data-address="<%= trade.token_address %>"
+                        title="Copy address"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <rect
+                            x="9"
+                            y="9"
+                            width="13"
+                            height="13"
+                            rx="2"
+                            ry="2"
+                          ></rect>
+                          <path
+                            d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+                          ></path>
+                        </svg>
+                      </button>
                     </div>
                   </div>
-                </td>
-                <td class="price-cell">$<%= formatCurrency(trade.entry_price) %></td>
-                <td class="price-cell">$<%= formatCurrency(trade.exit_price) %></td>
-                <td class="price-cell"><%= formatTokenAmount(normalizedTradeAmount) %></td>
-                <td class="price-cell <%= statusClass %>">
-                  $<%= formatCurrency(profitLoss) %>
-                  (<%= profitLossPercentage >= 0 ? '+' : '' %><%= profitLossPercentage.toFixed(2) %>%)
-                </td>
-                <td><%= dateString %></td>
-              </tr>
+                </div>
+              </td>
+              <td class="price-cell">
+                $<%= formatCurrency(trade.entry_price) %>
+              </td>
+              <td class="price-cell">
+                $<%= formatCurrency(trade.exit_price) %>
+              </td>
+              <td class="price-cell">
+                <%= formatTokenAmount(normalizedTradeAmount) %>
+              </td>
+              <td class="price-cell <%= statusClass %>">
+                $<%= formatCurrency(profitLoss) %> (<%= profitLossPercentage >=
+                0 ? '+' : '' %><%= profitLossPercentage.toFixed(2) %>%)
+              </td>
+              <td><%= dateString %></td>
+            </tr>
             <% }) %>
           </tbody>
         </table>
-      <% } else { %>
-        <div style="padding: 2rem; text-align: center; color: #6b7280;">
+        <% } else { %>
+        <div style="padding: 2rem; text-align: center; color: #6b7280">
           No recent trades found.
         </div>
-      <% } %>
-      
-      <% if (totalPages > 1) { %>
+        <% } %> <% if (totalPages > 1) { %>
         <div class="pagination">
-          <span class="pagination-info">Showing <%= recentTrades.length %> of <%= totalTrades %> trades</span>
+          <span class="pagination-info"
+            >Showing <%= recentTrades.length %> of <%= totalTrades %>
+            trades</span
+          >
           <div class="pagination-controls">
             <% if (currentPage > 1) { %>
-              <a href="/?page=<%= currentPage - 1 %>" class="pagination-button">Previous</a>
+            <a href="/?page=<%= currentPage - 1 %>" class="pagination-button"
+              >Previous</a
+            >
+            <% } %> <% // Determine which page numbers to show let startPage =
+            Math.max(1, currentPage - 2); let endPage = Math.min(totalPages,
+            startPage + 4); if (endPage - startPage < 4) { startPage =
+            Math.max(1, endPage - 4); } %> <% if (startPage > 1) { %>
+            <a href="/?page=1" class="pagination-page">1</a>
+            <% if (startPage > 2) { %>
+            <span class="pagination-ellipsis">...</span>
+            <% } %> <% } %> <% for (let i = startPage; i <= endPage; i++) { %>
+            <a
+              href="/?page=<%= i %>"
+              class="pagination-page <%= i === currentPage ? 'active' : '' %>"
+              ><%= i %></a
+            >
+            <% } %> <% if (endPage < totalPages) { %> <% if (endPage <
+            totalPages - 1) { %>
+            <span class="pagination-ellipsis">...</span>
             <% } %>
-            
-            <% 
-              // Determine which page numbers to show
-              let startPage = Math.max(1, currentPage - 2);
-              let endPage = Math.min(totalPages, startPage + 4);
-              
-              if (endPage - startPage < 4) {
-                startPage = Math.max(1, endPage - 4);
-              }
-            %>
-            
-            <% if (startPage > 1) { %>
-              <a href="/?page=1" class="pagination-page">1</a>
-              <% if (startPage > 2) { %>
-                <span class="pagination-ellipsis">...</span>
-              <% } %>
-            <% } %>
-            
-            <% for (let i = startPage; i <= endPage; i++) { %>
-              <a href="/?page=<%= i %>" class="pagination-page <%= i === currentPage ? 'active' : '' %>"><%= i %></a>
-            <% } %>
-            
-            <% if (endPage < totalPages) { %>
-              <% if (endPage < totalPages - 1) { %>
-                <span class="pagination-ellipsis">...</span>
-              <% } %>
-              <a href="/?page=<%= totalPages %>" class="pagination-page"><%= totalPages %></a>
-            <% } %>
-            
-            <% if (currentPage < totalPages) { %>
-              <a href="/?page=<%= currentPage + 1 %>" class="pagination-button">Next</a>
+            <a href="/?page=<%= totalPages %>" class="pagination-page"
+              ><%= totalPages %></a
+            >
+            <% } %> <% if (currentPage < totalPages) { %>
+            <a href="/?page=<%= currentPage + 1 %>" class="pagination-button"
+              >Next</a
+            >
             <% } %>
           </div>
         </div>
-      <% } %>
+        <% } %>
+      </div>
+
+      <!-- Auto-refresh notice -->
+      <div class="auto-refresh">
+        Dashboard will auto-refresh in <span id="countdown">30</span> seconds
+        <a href="/" class="refresh-button">Refresh Now</a>
+      </div>
     </div>
-    
-    <!-- Auto-refresh notice -->
-    <div class="auto-refresh">
-      Dashboard will auto-refresh in <span id="countdown">30</span> seconds
-      <a href="/" class="refresh-button">Refresh Now</a>
-    </div>
-  </div>
-  
-  <footer>
-    <div class="container">
-      Solana Trading Agent Dashboard &copy; <%= new Date().getFullYear() %>
-    </div>
-  </footer>
-</body>
+
+    <footer>
+      <div class="container">
+        Solana Trading Agent Dashboard &copy; <%= new Date().getFullYear() %>
+      </div>
+    </footer>
+  </body>
 </html>
