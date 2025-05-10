@@ -577,16 +577,23 @@ export class PositionManager {
       if (position.currentPrice !== null) {
         try {
           // Get token decimals from the database
-          const tokenRecord = this.db.prepare(`
+          const tokenRecord = this.db
+            .prepare(
+              `
             SELECT decimals FROM tokens WHERE address = ?
-          `).get(position.tokenAddress) as { decimals?: number } | undefined;
+          `
+            )
+            .get(position.tokenAddress) as { decimals?: number } | undefined;
 
           // Use default of 9 decimals if not found
           const tokenDecimals = tokenRecord?.decimals || 9;
 
           // Normalize amount using token-specific decimals (same as in dashboard)
           const { normalizeTokenAmount } = await import("../utils/token");
-          const normalizedAmount = normalizeTokenAmount(position.amount, tokenDecimals);
+          const normalizedAmount = normalizeTokenAmount(
+            position.amount,
+            tokenDecimals
+          );
 
           // Calculate value using normalized amount
           const currentValue = normalizedAmount * position.currentPrice;
@@ -597,7 +604,10 @@ export class PositionManager {
           totalValue += currentValue;
           totalProfitLoss += positionProfitLoss;
         } catch (error) {
-          console.error(`Error calculating position metrics for ${position.tokenAddress}:`, error);
+          console.error(
+            `Error calculating position metrics for ${position.tokenAddress}:`,
+            error
+          );
         }
       }
     }
@@ -606,12 +616,19 @@ export class PositionManager {
     let totalEntryValue = 0;
     for (const position of positions) {
       try {
-        const tokenRecord = this.db.prepare(`
+        const tokenRecord = this.db
+          .prepare(
+            `
           SELECT decimals FROM tokens WHERE address = ?
-        `).get(position.tokenAddress) as { decimals?: number } | undefined;
+        `
+          )
+          .get(position.tokenAddress) as { decimals?: number } | undefined;
         const tokenDecimals = tokenRecord?.decimals || 9;
         const { normalizeTokenAmount } = await import("../utils/token");
-        const normalizedAmount = normalizeTokenAmount(position.amount, tokenDecimals);
+        const normalizedAmount = normalizeTokenAmount(
+          position.amount,
+          tokenDecimals
+        );
         totalEntryValue += normalizedAmount * position.entryPrice;
       } catch (error) {
         // Ignore errors for percentage calculation
@@ -768,7 +785,7 @@ export class PositionManager {
     return {
       activePnL: metrics.profitLoss,
       tradePnL: tradePnL,
-      totalPnL: totalPnL
+      totalPnL: totalPnL,
     };
   }
 
@@ -782,8 +799,11 @@ export class PositionManager {
       clearInterval(this.balanceHistoryIntervalId);
     }
 
+    // Clear incorrect data (optional)
+    this.clearIncorrectBalanceHistory();
+
     // Immediately record the first data point
-    this.recordBalanceHistory().catch(error => {
+    this.recordBalanceHistory().catch((error) => {
       console.error("Error recording initial balance history:", error);
     });
 
@@ -796,7 +816,36 @@ export class PositionManager {
       }
     }, intervalMs);
 
-    console.log(`✅ Started recording balance history every ${intervalMs / 60000} minutes`);
+    console.log(
+      `✅ Started recording balance history every ${intervalMs / 60000} minutes`
+    );
+  }
+
+  /**
+   * Clear incorrect balance history data
+   * Used to remove any data that doesn't include SOL balance
+   */
+  async clearIncorrectBalanceHistory() {
+    try {
+      // Delete all records where total_value < 50 (likely incorrect data)
+      // Adjust this threshold based on your typical portfolio size
+      const result = this.db
+        .prepare(
+          `
+        DELETE FROM balance_history
+        WHERE total_value < 50
+      `
+        )
+        .run();
+
+      if (result.changes > 0) {
+        console.log(
+          `Cleared ${result.changes} incorrect balance history records`
+        );
+      }
+    } catch (error) {
+      console.error("Error clearing incorrect balance history:", error);
+    }
   }
 
   /**
@@ -811,47 +860,137 @@ export class PositionManager {
   }
 
   /**
+   * Get the SOL balance in USD
+   * This matches the calculation in index.ts
+   */
+  async getSolValueUsd(): Promise<{
+    solBalanceInSol: number;
+    solValueUsd: number;
+    solPrice: number;
+  }> {
+    let solBalanceInSol = 0;
+    let solValueUsd = 0;
+    let solPrice = 0;
+
+    try {
+      // Get wallet address
+      const walletAddress = this.walletClient.getAddress();
+
+      // Get public key for balance checking
+      let publicKey = null;
+      if (this.walletClient.publicKey) {
+        publicKey = this.walletClient.publicKey;
+      } else if (
+        this.walletClient.keypair &&
+        this.walletClient.keypair.publicKey
+      ) {
+        publicKey = this.walletClient.keypair.publicKey;
+      } else if (walletAddress) {
+        const { PublicKey } = await import("@solana/web3.js");
+        publicKey = new PublicKey(walletAddress);
+      }
+
+      // Get SOL balance and convert to USD
+      if (publicKey) {
+        // Create a connection if needed
+        const { Connection } = await import("@solana/web3.js");
+        const connection = new Connection(
+          process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com",
+          "confirmed"
+        );
+
+        // Get SOL balance in lamports
+        const solBalance = await connection.getBalance(publicKey);
+        solBalanceInSol = solBalance / 10 ** 9; // Convert lamports to SOL
+
+        // Get SOL price
+        const WRAPPED_SOL = "So11111111111111111111111111111111111111112";
+        const solInfo = await this.jupiterService.getTokenInfo(WRAPPED_SOL);
+        solPrice = solInfo?.price || 0;
+
+        // Calculate SOL value in USD
+        solValueUsd = solBalanceInSol * solPrice;
+      }
+    } catch (error) {
+      console.error("Error calculating SOL balance value:", error);
+    }
+
+    return { solBalanceInSol, solValueUsd, solPrice };
+  }
+
+  /**
    * Record current balance to the balance_history table
    */
   async recordBalanceHistory(): Promise<BalanceHistoryRecord> {
-    // Get portfolio metrics
-    const metrics = await this.getPortfolioMetrics();
+    try {
+      // Get portfolio metrics for positions
+      const metrics = await this.getPortfolioMetrics();
 
-    // Get comprehensive P&L that includes trades
-    const pnlData = await this.getComprehensivePnL();
+      // Get comprehensive P&L that includes trades
+      const pnlData = await this.getComprehensivePnL();
 
-    const timestamp = Date.now();
-    const record: BalanceHistoryRecord = {
-      id: randomUUID(),
-      timestamp,
-      totalValue: metrics.totalValue,
-      activePositionsValue: metrics.totalValue,
-      profitLoss: pnlData.totalPnL,
-      profitLossPercentage: metrics.profitLossPercentage
-    };
+      // Get SOL balance and value (reusing the same logic as index.ts)
+      const { solValueUsd } = await this.getSolValueUsd();
 
-    // Store in database
-    this.db.prepare(`
-      INSERT INTO balance_history (
-        id,
+      // Total value includes positions + SOL (same calculation as in index.ts)
+      const totalValueWithSol = metrics.totalValue + solValueUsd;
+
+      const timestamp = Date.now();
+      const record: BalanceHistoryRecord = {
+        id: randomUUID(),
         timestamp,
-        total_value,
-        active_positions_value,
-        profit_loss,
-        profit_loss_percentage
-      ) VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
-      record.id,
-      record.timestamp,
-      record.totalValue,
-      record.activePositionsValue,
-      record.profitLoss,
-      record.profitLossPercentage
-    );
+        totalValue: totalValueWithSol, // Use complete portfolio value (positions + SOL)
+        activePositionsValue: metrics.totalValue,
+        profitLoss: pnlData.totalPnL,
+        profitLossPercentage: metrics.profitLossPercentage,
+      };
 
-    console.log(`📊 Recorded balance history: Total Value: $${record.totalValue.toFixed(2)}, P&L: $${record.profitLoss.toFixed(2)} (${record.profitLossPercentage.toFixed(2)}%)`);
+      // Store in database
+      this.db
+        .prepare(
+          `
+        INSERT INTO balance_history (
+          id,
+          timestamp,
+          total_value,
+          active_positions_value,
+          profit_loss,
+          profit_loss_percentage
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `
+        )
+        .run(
+          record.id,
+          record.timestamp,
+          record.totalValue,
+          record.activePositionsValue,
+          record.profitLoss,
+          record.profitLossPercentage
+        );
 
-    return record;
+      console.log(
+        `📊 Recorded balance history: Total Value: $${record.totalValue.toFixed(
+          2
+        )} (Positions: $${record.activePositionsValue.toFixed(
+          2
+        )}, SOL: $${solValueUsd.toFixed(2)}), P&L: $${record.profitLoss.toFixed(
+          2
+        )} (${record.profitLossPercentage.toFixed(2)}%)`
+      );
+
+      return record;
+    } catch (error) {
+      console.error("Error recording balance history:", error);
+      // Return a minimal record with current timestamp to avoid breaking the chain
+      return {
+        id: randomUUID(),
+        timestamp: Date.now(),
+        totalValue: 0,
+        activePositionsValue: 0,
+        profitLoss: 0,
+        profitLossPercentage: 0,
+      };
+    }
   }
 
   /**
@@ -860,7 +999,11 @@ export class PositionManager {
    * @param timeRange Optional time range in milliseconds (e.g., 86400000 for last 24 hours)
    * @param interval Optional interval for data aggregation ('hour', 'day', 'week')
    */
-  async getBalanceHistory(limit: number = 100, timeRange?: number, interval?: 'hour' | 'day' | 'week'): Promise<BalanceHistoryRecord[]> {
+  async getBalanceHistory(
+    limit: number = 100,
+    timeRange?: number,
+    interval?: "hour" | "day" | "week"
+  ): Promise<BalanceHistoryRecord[]> {
     let query = `
       SELECT
         id,
@@ -885,7 +1028,9 @@ export class PositionManager {
     query += ` ORDER BY timestamp DESC LIMIT ?`;
     params.push(limit);
 
-    const records = this.db.prepare(query).all(...params) as BalanceHistoryRecord[];
+    const records = this.db
+      .prepare(query)
+      .all(...params) as BalanceHistoryRecord[];
 
     // If interval specified, aggregate data
     if (interval && records.length > 0) {
@@ -898,18 +1043,21 @@ export class PositionManager {
   /**
    * Aggregate balance history records by time interval
    */
-  private aggregateBalanceHistory(records: BalanceHistoryRecord[], interval: 'hour' | 'day' | 'week'): BalanceHistoryRecord[] {
+  private aggregateBalanceHistory(
+    records: BalanceHistoryRecord[],
+    interval: "hour" | "day" | "week"
+  ): BalanceHistoryRecord[] {
     // Define the interval size in milliseconds
     const intervalSize = {
-      'hour': 3600000,
-      'day': 86400000,
-      'week': 604800000
+      hour: 3600000,
+      day: 86400000,
+      week: 604800000,
     }[interval];
 
     // Group records by interval
     const groupedRecords: { [key: number]: BalanceHistoryRecord[] } = {};
 
-    records.forEach(record => {
+    records.forEach((record) => {
       // Calculate the interval bucket
       const bucket = Math.floor(record.timestamp / intervalSize) * intervalSize;
 
@@ -921,17 +1069,22 @@ export class PositionManager {
     });
 
     // Aggregate each interval group
-    const aggregatedRecords: BalanceHistoryRecord[] = Object.keys(groupedRecords).map(bucketStr => {
+    const aggregatedRecords: BalanceHistoryRecord[] = Object.keys(
+      groupedRecords
+    ).map((bucketStr) => {
       const bucket = parseInt(bucketStr);
       const bucketRecords = groupedRecords[bucket];
 
       // Take the latest record in each bucket
-      const latestRecord = bucketRecords.reduce((latest, current) =>
-        current.timestamp > latest.timestamp ? current : latest, bucketRecords[0]);
+      const latestRecord = bucketRecords.reduce(
+        (latest, current) =>
+          current.timestamp > latest.timestamp ? current : latest,
+        bucketRecords[0]
+      );
 
       return {
         ...latestRecord,
-        timestamp: bucket // Use the bucket timestamp for consistency
+        timestamp: bucket, // Use the bucket timestamp for consistency
       };
     });
 
@@ -953,14 +1106,14 @@ export class PositionManager {
     const timeRange = days * 86400000;
 
     // Get balance history records
-    const records = await this.getBalanceHistory(days * 24, timeRange, 'day');
+    const records = await this.getBalanceHistory(days * 24, timeRange, "day");
 
     // Format the data for a graph
     const dates: string[] = [];
     const totalValues: number[] = [];
     const profitLossValues: number[] = [];
 
-    records.reverse().forEach(record => {
+    records.reverse().forEach((record) => {
       const date = new Date(record.timestamp);
       dates.push(date.toLocaleDateString());
       totalValues.push(record.totalValue);
@@ -970,7 +1123,7 @@ export class PositionManager {
     return {
       dates,
       totalValues,
-      profitLossValues
+      profitLossValues,
     };
   }
 }
