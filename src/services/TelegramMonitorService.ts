@@ -194,7 +194,6 @@ export class TelegramMonitorService {
 
       // Reduce the threshold to 2 minutes
       if (timeSinceLastMessage > 2 * 60 * 1000) {
-        console.log("⚠️ Checking connection health...");
         try {
           const isAlive = await this.testConnection();
           if (!isAlive) {
