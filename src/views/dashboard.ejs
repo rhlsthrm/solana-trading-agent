@@ -129,33 +129,26 @@
             </tr>
           </thead>
           <tbody>
-            <% positions.forEach(function(position) { 
-              /* Get token info from cache */
-              var tokenInfo = tokenMap[position.tokenAddress] || { symbol: '???', name: 'Unknown', decimals: 9 };
-              
-              /* Get the token decimals from our cache or use default */
-              var tokenDecimals = tokenInfo.decimals || 9;
-              
-              /* Normalize the token amount using the correct number of decimals */
-              var normalizedAmount = normalizeTokenAmount(position.amount, tokenDecimals);
-              
-              /* Calculate values using normalized amount for display */
-              var entryValue = normalizedAmount * position.entryPrice;
-              var currentValue = position.currentPrice ? normalizedAmount * position.currentPrice : 0;
-              
-              /* Calculate the profit/loss directly from currentValue and entryValue */
-              /* This is more accurate than using the database value */
-              var profitLoss = currentValue - entryValue;
-              
-              /* Calculate percentage based on entry value */
-              var profitLossPercentage = entryValue > 0 ? (profitLoss / entryValue) * 100 : 0;
-              
-              var statusClass = 'neutral';
-              if (profitLossPercentage > 20) statusClass = 'positive';
-              else if (profitLossPercentage > 0) statusClass = 'positive';
-              else if (profitLossPercentage < -10) statusClass = 'negative';
-              else if (profitLossPercentage < 0) statusClass = 'negative';
-            %>
+            <% positions.forEach(function(position) { /* Get token info from
+            cache */ var tokenInfo = tokenMap[position.tokenAddress] || {
+            symbol: '???', name: 'Unknown', decimals: 9 }; /* Get the token
+            decimals from our cache or use default */ var tokenDecimals =
+            tokenInfo.decimals || 9; /* Normalize the token amount using the
+            correct number of decimals */ var normalizedAmount =
+            normalizeTokenAmount(position.amount, tokenDecimals); /* Calculate
+            values using normalized amount for display */ var entryValue =
+            normalizedAmount * position.entryPrice; var currentValue =
+            position.currentPrice ? normalizedAmount * position.currentPrice :
+            0; /* Calculate the profit/loss directly from currentValue and
+            entryValue */ /* This is more accurate than using the database value
+            */ var profitLoss = currentValue - entryValue; /* Calculate
+            percentage based on entry value */ var profitLossPercentage =
+            entryValue > 0 ? (profitLoss / entryValue) * 100 : 0; var
+            statusClass = 'neutral'; if (profitLossPercentage > 20) statusClass
+            = 'positive'; else if (profitLossPercentage > 0) statusClass =
+            'positive'; else if (profitLossPercentage < -10) statusClass =
+            'negative'; else if (profitLossPercentage < 0) statusClass =
+            'negative'; %>
             <tr>
               <td>
                 <div class="token-cell">
@@ -223,7 +216,8 @@
                 0 ? '+' : '' %><%= profitLossPercentage.toFixed(2) %>%)
               </td>
               <td>
-                <% if (profitLossPercentage > 25 && profitLossPercentage < 30) { %>
+                <% if (profitLossPercentage > 25 && profitLossPercentage < 30) {
+                %>
                 <div class="warning">Approaching take-profit</div>
                 <% } else if (profitLossPercentage < -10 && profitLossPercentage
                 > -15) { %>
@@ -234,13 +228,20 @@
                 </div>
                 <% } %>
               </td>
-              <td>
+              <td class="action-buttons">
                 <button
                   class="close-position-btn"
                   data-position-id="<%= position.id %>"
                   data-token-name="<%= tokenInfo.name || tokenInfo.symbol %>"
                 >
-                  Close Position
+                  Close
+                </button>
+                <button
+                  class="delete-position-btn"
+                  data-position-id="<%= position.id %>"
+                  data-token-name="<%= tokenInfo.name || tokenInfo.symbol %>"
+                >
+                  Delete
                 </button>
               </td>
             </tr>
@@ -273,30 +274,23 @@
             </tr>
           </thead>
           <tbody>
-            <% recentTrades.forEach(function(trade) { 
-              /* Get token info from our cache */
-              var tokenInfo = tokenMap[trade.token_address] || { symbol: '???', name: 'Unknown', decimals: 9 };
-              
-              /* Get the token decimals */
-              var tokenDecimals = tokenInfo.decimals || 9;
-              
-              /* Normalize the trade amount using the correct number of decimals */
-              var normalizedTradeAmount = normalizeTokenAmount(trade.position_size, tokenDecimals);
-              
-              /* Calculate values using normalized amount */
-              var entryValue = normalizedTradeAmount * trade.entry_price;
-              var exitValue = normalizedTradeAmount * trade.exit_price;
-              
-              /* Calculate profit/loss directly from exitValue and entryValue */
-              var profitLoss = exitValue - entryValue;
-              
-              /* Calculate percentage based on entry value */
-              var profitLossPercentage = entryValue > 0 ? (profitLoss / entryValue) * 100 : 0;
-              var statusClass = profitLossPercentage >= 0 ? 'positive' : 'negative';
-              var exitDate = new Date(trade.exit_time * 1000);
-              var dateString = exitDate.toLocaleDateString() + ' ' +
-                             exitDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-            %>
+            <% recentTrades.forEach(function(trade) { /* Get token info from our
+            cache */ var tokenInfo = tokenMap[trade.token_address] || { symbol:
+            '???', name: 'Unknown', decimals: 9 }; /* Get the token decimals */
+            var tokenDecimals = tokenInfo.decimals || 9; /* Normalize the trade
+            amount using the correct number of decimals */ var
+            normalizedTradeAmount = normalizeTokenAmount(trade.position_size,
+            tokenDecimals); /* Calculate values using normalized amount */ var
+            entryValue = normalizedTradeAmount * trade.entry_price; var
+            exitValue = normalizedTradeAmount * trade.exit_price; /* Calculate
+            profit/loss directly from exitValue and entryValue */ var profitLoss
+            = exitValue - entryValue; /* Calculate percentage based on entry
+            value */ var profitLossPercentage = entryValue > 0 ? (profitLoss /
+            entryValue) * 100 : 0; var statusClass = profitLossPercentage >= 0 ?
+            'positive' : 'negative'; var exitDate = new Date(trade.exit_time *
+            1000); var dateString = exitDate.toLocaleDateString() + ' ' +
+            exitDate.toLocaleTimeString([], {hour: '2-digit',
+            minute:'2-digit'}); %>
             <tr>
               <td>
                 <div class="token-cell">
@@ -382,19 +376,10 @@
             <a href="/?page=<%= currentPage - 1 %>" class="pagination-button"
               >Previous</a
             >
-            <% } %> 
-            
-            <% 
-              /* Determine which page numbers to show */
-              var startPage = Math.max(1, currentPage - 2);
-              var endPage = Math.min(totalPages, startPage + 4);
-              
-              if (endPage - startPage < 4) {
-                startPage = Math.max(1, endPage - 4);
-              }
-            %> 
-            
-            <% if (startPage > 1) { %>
+            <% } %> <% /* Determine which page numbers to show */ var startPage
+            = Math.max(1, currentPage - 2); var endPage = Math.min(totalPages,
+            startPage + 4); if (endPage - startPage < 4) { startPage =
+            Math.max(1, endPage - 4); } %> <% if (startPage > 1) { %>
             <a href="/?page=1" class="pagination-page">1</a>
             <% if (startPage > 2) { %>
             <span class="pagination-ellipsis">...</span>

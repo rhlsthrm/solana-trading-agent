@@ -63,6 +63,7 @@ function initializeCopyButtons() {
  * Initialize functionality for close position buttons
  */
 function initializeClosePositionButtons() {
+  // Handle Close Position buttons
   document.querySelectorAll(".close-position-btn").forEach((button) => {
     button.addEventListener("click", async function (e) {
       e.preventDefault();
@@ -72,7 +73,7 @@ function initializeClosePositionButtons() {
       // Confirm with the user before closing the position
       if (
         !confirm(
-          `Are you sure you want to close your position in ${tokenName}?`
+          `Are you sure you want to close your position in ${tokenName}? This will sell your tokens.`
         )
       ) {
         return;
@@ -116,6 +117,71 @@ function initializeClosePositionButtons() {
         // Re-enable the button
         this.disabled = false;
         this.textContent = "Close Position";
+      }
+    });
+  });
+
+  // Handle Delete Position buttons
+  document.querySelectorAll(".delete-position-btn").forEach((button) => {
+    button.addEventListener("click", async function (e) {
+      e.preventDefault();
+      const positionId = this.dataset.positionId;
+      const tokenName = this.dataset.tokenName;
+
+      // Confirm with the user before deleting the position
+      if (
+        !confirm(
+          `Are you sure you want to DELETE your position in ${tokenName}? This will mark the position as closed WITHOUT selling your tokens. Use this only if the position is stuck!`
+        )
+      ) {
+        return;
+      }
+
+      // Double confirm for safety
+      if (
+        !confirm(
+          `WARNING: You will keep the tokens in your wallet, but the position will be closed in the database. Proceed?`
+        )
+      ) {
+        return;
+      }
+
+      // Disable the button and show loading state
+      this.disabled = true;
+      this.textContent = "Deleting...";
+
+      try {
+        // Make an API call to delete the position
+        const response = await fetch(`/api/position/delete/${positionId}`, {
+          method: "POST",
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success) {
+            alert(
+              `Position successfully deleted! P&L value recorded: $${result.profitLoss.toFixed(2)}`
+            );
+            // Refresh the page to show updated data
+            window.location.reload();
+          } else {
+            alert(`Error deleting position: ${result.error}`);
+            // Re-enable the button
+            this.disabled = false;
+            this.textContent = "Delete Position";
+          }
+        } else {
+          alert("Error communicating with server. Please try again.");
+          // Re-enable the button
+          this.disabled = false;
+          this.textContent = "Delete Position";
+        }
+      } catch (error) {
+        console.error("Error deleting position:", error);
+        alert("An unexpected error occurred. Please try again.");
+        // Re-enable the button
+        this.disabled = false;
+        this.textContent = "Delete Position";
       }
     });
   });

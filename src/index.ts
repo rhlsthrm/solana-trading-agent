@@ -21,6 +21,7 @@ import {
   normalizeTokenAmount,
 } from "./utils/token";
 import { initializeDatabase as initDb } from "./utils/db-schema";
+import { randomUUID } from "./utils/uuid";
 import fs from "fs";
 
 // Get the directory name using ESM pattern
@@ -391,7 +392,10 @@ async function main() {
     }) as RequestHandler);
 
     // API endpoint for closing a position
-    app.post("/api/position/close/:id", (async (req: Request, res: Response) => {
+    app.post("/api/position/close/:id", (async (
+      req: Request,
+      res: Response
+    ) => {
       try {
         const positionId = req.params.id;
 
@@ -445,6 +449,115 @@ async function main() {
         }
       } catch (error) {
         console.error(`Error closing position:`, error);
+        res.status(500).json({
+          success: false,
+          error: (error as Error).message,
+        });
+      }
+    }) as RequestHandler);
+
+    // API endpoint for deleting a position without selling tokens
+    app.post("/api/position/delete/:id", (async (
+      req: Request,
+      res: Response
+    ) => {
+      try {
+        const positionId = req.params.id;
+
+        // Get the position to make sure it exists
+        const position = await positionManager.getPosition(positionId);
+        if (!position) {
+          return res.status(404).json({
+            success: false,
+            error: "Position not found",
+          });
+        }
+
+        // Calculate profit/loss for the response
+        let profitLoss = 0;
+        if (position.entryPrice && position.currentPrice) {
+          // Get token decimals from the database
+          const tokenRecord = db
+            .prepare("SELECT decimals FROM tokens WHERE address = ?")
+            .get(position.tokenAddress) as { decimals?: number } | undefined;
+
+          // Default to 9 decimals if not found
+          const tokenDecimals = tokenRecord?.decimals || 9;
+
+          // Import the function dynamically
+          const { normalizeTokenAmount } = await import("./utils/token");
+
+          // Calculate using normalized amount (same as in the UI)
+          const normalizedAmount = normalizeTokenAmount(
+            position.amount,
+            tokenDecimals
+          );
+          const entryValue = normalizedAmount * position.entryPrice;
+          const currentValue = normalizedAmount * position.currentPrice;
+          profitLoss = currentValue - entryValue;
+        }
+
+        // Simply update the position status to CLOSED directly in the database
+        try {
+          // Start a database transaction
+          db.exec("BEGIN TRANSACTION");
+
+          // Update position status to CLOSED
+          await positionManager.updatePosition(positionId, {
+            status: "CLOSED",
+            lastUpdated: Date.now(),
+          });
+
+          // Add a record in trades table for accounting purposes
+          if (position.currentPrice) {
+            db.prepare(
+              `
+              INSERT INTO trades (
+                id,
+                token_address,
+                position_size,
+                entry_price,
+                exit_price,
+                exit_time,
+                status,
+                profit_loss,
+                tx_id
+              ) VALUES (?, ?, ?, ?, ?, unixepoch(), ?, ?, 'manual_delete')
+            `
+            ).run(
+              randomUUID(),
+              position.tokenAddress,
+              position.amount,
+              position.entryPrice,
+              position.currentPrice,
+              "CLOSED",
+              profitLoss
+            );
+          }
+
+          // Commit the transaction
+          db.exec("COMMIT");
+
+          console.log(
+            `🗑️ Position ${positionId} manually deleted. P&L: ${profitLoss}`
+          );
+
+          res.json({
+            success: true,
+            message: "Position deleted successfully",
+            profitLoss,
+          });
+        } catch (error) {
+          // Rollback on error
+          db.exec("ROLLBACK");
+          console.error(`Error deleting position ${positionId}:`, error);
+          res.status(500).json({
+            success: false,
+            error: "Failed to delete position",
+          });
+        }
+      } catch (error) {
+        console.error(`Error deleting position:`, error);
         res.status(500).json({
           success: false,
           error: (error as Error).message,
