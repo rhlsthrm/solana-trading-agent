@@ -119,6 +119,15 @@ async function main() {
 
     await proficyService.init();
 
+    // Read channel IDs from environment variable, if provided
+    // TELEGRAM_CHANNEL_IDS should be a comma-separated list, e.g. "DegenSeals,fadedarc,goattests"
+    let channelIds: string[] | undefined = undefined;
+    if (process.env.TELEGRAM_CHANNEL_IDS) {
+      channelIds = process.env.TELEGRAM_CHANNEL_IDS.split(",")
+        .map((id) => id.trim())
+        .filter(Boolean);
+    }
+
     // Initialize Telegram monitor
     const telegramMonitor = createTelegramMonitorService({
       apiId: Number(process.env.TELEGRAM_API_ID),
@@ -130,6 +139,7 @@ async function main() {
       tradeExecutionService: tradeExecutionService,
       proficyService: proficyService,
       sentimentService: sentimentService,
+      ...(channelIds ? { channelIds } : {}), // Only pass if defined
     });
 
     // Start the Telegram monitor

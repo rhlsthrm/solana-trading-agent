@@ -45,7 +45,7 @@ interface Position {
 
 export class TelegramMonitorService {
   private client: TelegramClient;
-  private channelIds: string[] = ["DegenSeals", "fadedarc", "goattests"];
+  private channelIds: string[];
   private lastMessageTime: number = Date.now();
   private isConnected: boolean = false;
   private readonly minVolume = 10000;
@@ -76,6 +76,7 @@ export class TelegramMonitorService {
       tradeExecutionService: TradeExecutionService;
       proficyService: ProficyService;
       sentimentService: SentimentAnalysisService;
+      channelIds?: string[];
     }
   ) {
     const stringSession = new StringSession(config.sessionStr || "");
@@ -87,6 +88,10 @@ export class TelegramMonitorService {
         connectionRetries: 5,
       }
     );
+    this.channelIds =
+      config.channelIds && config.channelIds.length > 0
+        ? config.channelIds
+        : ["DegenSeals", "fadedarc", "goattests"];
   }
 
   async start() {
@@ -244,7 +249,10 @@ export class TelegramMonitorService {
         this.isConnected = true;
 
         // Only process messages from monitored channels
-        if (!this.channelIds.includes(chat.username)) {
+        if (
+          !this.channelIds.includes(chat.username) &&
+          !this.channelIds.map((id) => id.slice(4)).includes(chat.id.toString()) // remove the -100 part
+        ) {
           return;
         }
 
@@ -787,6 +795,7 @@ export const createTelegramMonitorService = (config: {
   tradeExecutionService: TradeExecutionService;
   proficyService: ProficyService;
   sentimentService: SentimentAnalysisService;
+  channelIds?: string[];
 }) => {
   return new TelegramMonitorService(config);
 };
