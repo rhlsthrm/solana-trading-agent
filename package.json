@@ -11,10 +11,10 @@
   },
   "dependencies": {
     "@elizaos/adapter-sqlite": "^0.1.9",
-    "@elizaos/core": "^0.25.9",
-    "@goat-sdk/core": "^0.4.9",
-    "@goat-sdk/plugin-jupiter": "^0.2.16",
-    "@goat-sdk/wallet-solana": "^0.2.16",
+    "@elizaos/core": "^0.1.9",
+    "@goat-sdk/core": "^0.4.3",
+    "@goat-sdk/plugin-jupiter": "^0.2.4",
+    "@goat-sdk/wallet-solana": "^0.1.9",
     "@solana/web3.js": "^1.98.2",
     "better-sqlite3": "^11.10.0",
     "bignumber.js": "^9.3.0",
@@ -28,7 +28,7 @@
     "sharp": "^0.34.1",
     "telegram": "^2.26.22",
     "uuid": "^11.1.0",
-    "zod": "3.24.4"
+    "zod": "3.23.8"
   },
   "devDependencies": {
     "@babel/core": "^7.27.1",
