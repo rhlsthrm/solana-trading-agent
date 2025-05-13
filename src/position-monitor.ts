@@ -8,15 +8,21 @@ import {
   PositionManager,
 } from "./services/PositionManager";
 import { initializeDatabase as initDb } from "./utils/db-schema";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Default check interval (in milliseconds)
 const DEFAULT_CHECK_INTERVAL = 60 * 1000;
 
 async function initializeDatabase(): Promise<Database.Database> {
-  // Use environment variable DB_PATH or fallback to default path
-  const dbPath = process.env.DB_PATH;
+  // Always use a project-relative path for the database
+  const dbPath =
+    process.env.DB_PATH || path.resolve(__dirname, "../data/trading.db");
   console.log(`Connecting to database at ${dbPath}...`);
-  
+
   // Initialize SQLite database
   const sqliteDb = new Database(dbPath, {
     verbose: process.env.DEBUG ? console.log : undefined,

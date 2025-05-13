@@ -45,7 +45,17 @@ interface Position {
 
 export class TelegramMonitorService {
   private client: TelegramClient;
-  private channelIds: string[] = ["DegenSeals", "fadedarc", "goattests"];
+  private channelIds: string[] = [
+    "DegenSeals",
+    "fadedarc",
+    "-1002295400686", // giga
+    "-1002032554589", // onchain apes
+    "-1002216963577", // crip toe
+    // "-1002298010840", // matrix core
+    "-1002495942635", // happy profit chat
+    "-1001554026478", // investing beanstock dao
+    "-1002226331852",
+  ];
   private lastMessageTime: number = Date.now();
   private isConnected: boolean = false;
   private readonly minVolume = 10000;
@@ -244,7 +254,10 @@ export class TelegramMonitorService {
         this.isConnected = true;
 
         // Only process messages from monitored channels
-        if (!this.channelIds.includes(chat.username)) {
+        if (
+          !this.channelIds.includes(chat.username) &&
+          !this.channelIds.map((id) => id.slice(4)).includes(chat.id.toString()) // remove the -100 part
+        ) {
           return;
         }
 

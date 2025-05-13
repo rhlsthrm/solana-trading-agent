@@ -14,12 +14,18 @@ import { createProficyService } from "./services/ProficyService";
 import { createSentimentAnalysisService } from "./services/SentimentAnalysisService";
 import { createPositionManager } from "./services/PositionManager";
 import { elizaSchema, telegramSchema, tradingSchema } from "./utils/db-schema";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 async function initializeDatabase(): Promise<Database.Database> {
-  // Use environment variable DB_PATH or fallback to default path
-  const dbPath = process.env.DB_PATH;
+  // Always use a project-relative path for the database
+  const dbPath =
+    process.env.DB_PATH || path.resolve(__dirname, "../data/trading.db");
   console.log(`Connecting to database at ${dbPath}...`);
-  
+
   // Initialize SQLite database with schema
   const sqliteDb = new Database(dbPath, {
     verbose: process.env.DEBUG ? console.log : undefined,
@@ -91,10 +97,20 @@ async function main() {
       positionManager
     );
 
+    // Debug log for TELEGRAM_SESSION
+    const telegramSessionRaw = process.env.TELEGRAM_SESSION;
+    console.log("TELEGRAM_SESSION:", JSON.stringify(telegramSessionRaw));
+    const telegramSession = telegramSessionRaw ? telegramSessionRaw.trim() : "";
+    console.log("TELEGRAM_SESSION length:", telegramSession.length);
+    console.log(
+      "TELEGRAM_SESSION char codes:",
+      telegramSession.split("").map((c) => c.charCodeAt(0))
+    );
+
     const proficyService = createProficyService({
       apiId: Number(process.env.TELEGRAM_API_ID),
       apiHash: process.env.TELEGRAM_API_HASH,
-      sessionStr: process.env.TELEGRAM_SESSION,
+      sessionStr: telegramSession,
       runtime,
       db: sqliteDb,
     });

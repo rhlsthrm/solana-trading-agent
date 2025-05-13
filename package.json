@@ -11,39 +11,39 @@
   },
   "dependencies": {
     "@elizaos/adapter-sqlite": "^0.1.9",
-    "@elizaos/core": "^0.1.9",
-    "@goat-sdk/core": "^0.4.3",
-    "@goat-sdk/plugin-jupiter": "^0.2.4",
-    "@goat-sdk/wallet-solana": "^0.1.9",
-    "@solana/web3.js": "^1.98.0",
-    "better-sqlite3": "^9.6.0",
-    "bignumber.js": "^9.1.2",
+    "@elizaos/core": "^0.25.9",
+    "@goat-sdk/core": "^0.4.9",
+    "@goat-sdk/plugin-jupiter": "^0.2.16",
+    "@goat-sdk/wallet-solana": "^0.2.16",
+    "@solana/web3.js": "^1.98.2",
+    "better-sqlite3": "^11.10.0",
+    "bignumber.js": "^9.3.0",
     "bs58": "^6.0.0",
-    "dotenv": "^16.4.7",
+    "dotenv": "^16.5.0",
     "ejs": "^3.1.10",
     "express": "^5.1.0",
     "input": "^1.0.1",
     "morgan": "^1.10.0",
     "npm-run-all": "^4.1.5",
     "sharp": "^0.34.1",
-    "telegram": "^2.26.8",
-    "uuid": "^11.0.3",
-    "zod": "3.23.8"
+    "telegram": "^2.26.22",
+    "uuid": "^11.1.0",
+    "zod": "3.24.4"
   },
   "devDependencies": {
-    "@babel/core": "^7.23.9",
-    "@babel/preset-env": "^7.26.0",
-    "@babel/preset-typescript": "^7.26.0",
-    "@types/better-sqlite3": "^7.6.9",
+    "@babel/core": "^7.27.1",
+    "@babel/preset-env": "^7.27.2",
+    "@babel/preset-typescript": "^7.27.1",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/ejs": "^3.1.5",
     "@types/express": "^5.0.1",
     "@types/json-schema": "^7.0.15",
     "@types/morgan": "^1.9.9",
-    "@types/node": "^20.17.10",
+    "@types/node": "^22.15.17",
     "@types/uuid": "^10.0.0",
     "ts-node": "^10.9.2",
-    "tsx": "^4.7.1",
-    "typescript": "^5.7.2"
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
   },
   "pnpm": {
     "ignoredBuiltDependencies": [
@@ -52,5 +52,6 @@
     "onlyBuiltDependencies": [
       "better-sqlite3"
     ]
-  }
+  },
+  "packageManager": "pnpm@10.10.0+sha512.d615db246fe70f25dcfea6d8d73dee782ce23e2245e3c4f6f888249fb568149318637dca73c2c5c8ef2a4ca0d5657fb9567188bfab47f566d1ee6ce987815c39"
 }
