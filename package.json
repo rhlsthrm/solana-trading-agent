@@ -2,6 +2,9 @@
   "name": "solana-trading-agent",
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": ">=23.0.0"
+  },
   "scripts": {
     "build": "tsc",
     "start": "tsx src/index.ts",
