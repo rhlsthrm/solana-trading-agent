@@ -99,13 +99,7 @@ async function main() {
 
     // Debug log for TELEGRAM_SESSION
     const telegramSessionRaw = process.env.TELEGRAM_SESSION;
-    console.log("TELEGRAM_SESSION:", JSON.stringify(telegramSessionRaw));
     const telegramSession = telegramSessionRaw ? telegramSessionRaw.trim() : "";
-    console.log("TELEGRAM_SESSION length:", telegramSession.length);
-    console.log(
-      "TELEGRAM_SESSION char codes:",
-      telegramSession.split("").map((c) => c.charCodeAt(0))
-    );
 
     const proficyService = createProficyService({
       apiId: Number(process.env.TELEGRAM_API_ID),
